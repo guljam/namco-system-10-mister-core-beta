@@ -1,0 +1,35 @@
+<misterromdescription>
+	<name>Mr. Driller G (Japan, DRG1 Ver.A)</name>
+	<setname>mrdrilrg</setname>
+	<year>2001</year>
+	<manufacturer>Namco</manufacturer>
+	<rbf>SYSTEM10</rbf>
+	<buttons names="Drill,-,-,-,-,-,Start,Coin,Pause,Service" default="A,B,X,Y,R,L,Start,Select"/>
+
+	<!-- ioctl index 1: board configuration (tools/ns10cfg.py blob mrdrilrg) -->
+	<rom index="1">
+		<part>
+		01 03 AA AA 0E 0C 0F 0D 0A 09 08 0B 04 05 06 07 00 01 03 02 02 01 00 00 11 00 73 00 00 00 08 01
+		00 00 00 00 00 00 00 20 1A 80 00 60 02 00 00 00 00 00 18 00 00 00 20 04 00 00 00 88 00 00 00 C0
+		01 04 62 68 5C 11 01 04 62 68 5C 11 94 20 80 02 81 00 94 20 80 02 81 00 A8 70 52 A6 81 00 A8 70
+		52 A6 81 00 10 00 81 00 00 00 10 00 81 00 00 00 59 30 0F 08 2C 4C 59 30 0F 08 2C 4C 00 95 0A 47
+		81 00 00 95 0A 47 81 00 09 30 12 6A 81 00 09 30 12 6A 81 00 38 30 B2 A2 81 00 38 30 B2 A2 81 00
+		00 90 6B A0 18 2D 00 90 6B A0 18 2D 0C 00 02 6C 18 01 0C 00 02 6C 18 01 4C 70 B2 A2 81 00 4C 70
+		B2 A2 81 00 02 63 01 11 28 70 02 63 01 11 28 70 22 11 0A 47 81 00 22 11 0A 47 81 00 00 62 00 00
+		00 00 00 62 00 00 00 00 13 30 40 AC 70 91 13 30 40 AC 70 91 44 10 00 00 00 00 44 10 00 00 00 00
+		00 00 40 00 01 12 00 00 40 00 01 12 00 00 02 00 18 01 00 00 02 00 18 01 00 00 00 00 00 00 00 00
+		00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+		00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+		00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+		00 80 00 00
+		</part>
+	</rom>
+	<!-- ioctl index 2: settings / rankings / bookkeeping stored on the ROM board -->
+	<nvram index="2" size="16896"/>
+	<!-- ioctl index 0: ROM board image -> DDR3 0x35000000 -->
+	<rom index="0" zip="mrdrilrg.zip" md5="none">
+		<part name="0.8e" crc="4b61ac62"/>
+		<part name="1.8d" crc="c87b5e86"/>
+		<part name="2.7e" crc="e0a9339f"/>
+	</rom>
+</misterromdescription>

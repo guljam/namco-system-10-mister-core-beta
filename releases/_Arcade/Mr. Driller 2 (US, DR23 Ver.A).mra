@@ -1,0 +1,35 @@
+<misterromdescription>
+	<name>Mr. Driller 2 (US, DR23 Ver.A)</name>
+	<setname>mrdrilr2u</setname>
+	<year>2000</year>
+	<manufacturer>Namco</manufacturer>
+	<rbf>SYSTEM10</rbf>
+	<buttons names="Drill,-,-,-,-,-,Start,Coin,Pause,Service" default="A,B,X,Y,R,L,Start,Select"/>
+
+	<!-- ioctl index 1: board configuration (tools/ns10cfg.py blob mrdrilr2u) -->
+	<rom index="1">
+		<part>
+		00 00 AA AA 0C 0D 0F 0E 0B 0A 09 08 07 06 04 01 02 05 00 03 01 00 00 00 00 00 00 00 00 00 00 00
+		00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+		00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+		00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+		00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+		00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+		00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+		00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+		00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+		00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+		00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+		00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+		00 00 00 00
+		</part>
+	</rom>
+	<!-- ioctl index 2: settings / rankings / bookkeeping stored on the ROM board -->
+	<nvram index="2" size="16384"/>
+	<!-- ioctl index 0: ROM board image -> DDR3 0x35000000 -->
+	<rom index="0" zip="mrdrilr2u.zip|mrdrilr2.zip" md5="none">
+		<part name="dr23vera.1a" crc="5f32b6fb"/>
+		<part name="dr21ma1.1d" crc="26dc6f55"/>
+		<part name="dr21ma2.2d" crc="702556ff"/>
+	</rom>
+</misterromdescription>

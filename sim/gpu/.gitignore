@@ -1,0 +1,9 @@
+mem/
+new/
+old/
+gen/
+ref/
+modelsim.ini
+transcript
+*.wlf
+ghdl/

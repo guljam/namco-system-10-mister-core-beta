@@ -1,0 +1,34 @@
+<misterromdescription>
+	<name>Star Trigon (Japan, STT1 Ver.A)</name>
+	<setname>startrgn</setname>
+	<year>2002</year>
+	<manufacturer>Namco</manufacturer>
+	<rbf>SYSTEM10</rbf>
+	<buttons names="Button 1,-,-,-,-,-,Start,Coin,Pause,Service" default="A,B,X,Y,R,L,Start,Select"/>
+
+	<!-- ioctl index 1: board configuration (tools/ns10cfg.py blob startrgn) -->
+	<rom index="1">
+		<part>
+		01 02 AA AA 0E 0D 0C 0F 09 0B 08 0A 04 05 06 07 00 03 02 01 02 00 46 8C 10 00 73 00 00 00 08 01
+		00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+		A9 C6 92 FE 4B 3E A8 C6 00 1F 02 12 0C 01 00 00 00 00 08 00 00 00 00 00 AA C4 D6 7B 4B 3E AA 46
+		10 0B 02 12 B8 FA B8 04 A9 B1 A8 FE 02 15 00 12 80 00 00 00 00 00 00 20 00 00 00 00 00 8C 00 00
+		00 00 00 88 00 00 00 00 CD B4 F0 B2 A9 B1 CD B4 02 1E 00 12 28 08 10 6C 00 00 AA 08 00 2C 00 00
+		38 08 10 6C 00 00 3A 08 00 2C 00 00 CD 3F 91 D3 A9 B1 CD 7E 02 3F 00 12 00 AA 61 61 00 00 00 8A
+		00 21 00 00 40 60 00 00 00 00 40 20 00 00 00 00 20 04 00 00 00 00 28 04 00 00 00 00 01 18 00 00
+		00 00 01 10 00 00 00 00 AB DE D6 7B 4B 3E AB CE 10 0B 02 12 05 01 00 00 00 00 44 01 00 00 00 00
+		00 10 00 00 00 00 00 10 00 00 00 00 00 40 00 00 00 00 00 40 00 00 00 00 00 00 00 00 00 00 00 00
+		00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+		00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+		00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+		00 80 00 00
+		</part>
+	</rom>
+	<!-- ioctl index 2: settings / rankings / bookkeeping stored on the ROM board -->
+	<nvram index="2" size="16896"/>
+	<!-- ioctl index 0: ROM board image -> DDR3 0x35000000 -->
+	<rom index="0" zip="startrgn.zip" md5="none">
+		<part name="stt1a_0.bin" crc="1e090644"/>
+		<part name="stt1a_1.bin" crc="aa527694"/>
+	</rom>
+</misterromdescription>
