@@ -27,13 +27,18 @@ Currently only the following games are supported:
 - Star Trigon
 - Gamshara
 
-Support for additional games is uncertain. Bugs and improvements in the core itself will be updated.
+Support for additional games is uncertain. Future updates will focus on bug fixes and core improvements.
 
 ## Limitations
 
 - Tested only on the QMTECH MiSTer board. It is unknown whether it works on the DE10-Nano.
 - This core was not made by analyzing real hardware.
 - It may not be cycle accurate.
+
+## Issues Found
+
+- Unable to save or read scores from NVRAM
+- Graphics freeze when resetting or running cores under specific conditions
 
 ## Additional notes
 
