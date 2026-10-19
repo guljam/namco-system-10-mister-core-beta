@@ -18,6 +18,34 @@ Copy the contents of `releases/_Arcade` to the root of your MiSTer SD card:
 - `rtl/` core sources, `rtl/ns10/` System 10 specific logic, `sys/` MiSTer framework.
 - `sim/` testbenches, `tools/` Python models/trace tools/MRA generator (`mkmra.py`), `docs/` development notes.
 
+## Supported games
+
+Currently only the following games are supported:
+
+- Mr. Driller 2
+- Mr. Driller G
+- Star Trigon
+- Gamshara
+
+Support for additional games is uncertain. Bugs and improvements in the core itself will be updated.
+
+## Limitations
+
+- Tested only on the QMTECH MiSTer board. It is unknown whether it works on the DE10-Nano.
+- This core was not made by analyzing real hardware.
+- It may not be cycle accurate.
+
+## Additional notes
+
+- Created with Claude Opus 5.5.
+- Based on the MiSTer PSX core and the MAME `namcos10.cpp` driver code.
+- I am not a professional developer. I am approaching this AI-generated core very conservatively and carefully, out of consideration for existing professional core developers. If controversy arises over AI-generated cores, I will delete this repository.
+
 ## License
 
-See `LICENSE`.
+This project is a derivative work and is distributed under the GNU GPL v2 (see `LICENSE`).
+
+- Based on the MiSTer PSX core (GPL v2), https://github.com/MiSTer-devel/PSX_MiSTer
+- Hardware behavior was referenced from the MAME `namcos10.cpp` driver (MAME project).
+- `sys/` is the MiSTer framework; original copyright notices are kept in each file.
+- Game ROMs and BIOS are not included and are not distributed.
