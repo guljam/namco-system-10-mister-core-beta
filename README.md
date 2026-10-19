@@ -22,10 +22,10 @@ Copy the contents of `releases/_Arcade` to the root of your MiSTer SD card:
 
 Currently only the following games are supported:
 
-- Mr. Driller 2
-- Mr. Driller G
-- Star Trigon
-- Gamshara
+- Mr. Driller 2 (`mrdrlr2j`,`mrdrilr2j`,`mrdrilr2u`,`mrdrilr2`)
+- Mr. Driller G (`mrdrilrg`)
+- Star Trigon (`startrgn`)
+- Gamshara (`gamshara`)
 
 Support for additional games is uncertain. Future updates will focus on bug fixes and core improvements.
 
