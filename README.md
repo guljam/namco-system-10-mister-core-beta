@@ -37,7 +37,7 @@ Support for additional games is uncertain. Future updates will focus on bug fixe
 
 ## Issues Found
 
-- Unable to save or read scores from NVRAM
+- Unable to read score data from NVRAM in Mr. Driller 2
 - Graphics freeze when resetting or running cores under specific conditions
 
 ## Additional notes
