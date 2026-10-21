@@ -39,7 +39,7 @@ Support for additional games is uncertain. Future updates will focus on bug fixe
 
 - Unable to read score data from NVRAM in Mr. Driller 2
 - Graphics freeze when resetting or running cores under specific conditions
-- The "Star Trigon" game is not working; it functioned correctly during testing, but the issue arose because it was released without proper verification following the final modifications.
+- ~~The "Star Trigon" game is not working; it functioned correctly during testing, but the issue arose because it was released without proper verification following the final modifications.~~
 
 ## Additional notes
 
