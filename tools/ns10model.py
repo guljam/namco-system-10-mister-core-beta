@@ -361,7 +361,9 @@ class IntelFlash:
             elif c == 0xE8:
                 self.mode = "WB1"
         elif m == "WRITEPART1":
-            self.data[2 * word], self.data[2 * word + 1] = d & 0xFF, d >> 8
+            # programming only clears bits (intelfsh: m_data &= data)
+            self.data[2 * word] &= d & 0xFF
+            self.data[2 * word + 1] &= d >> 8
             self.status, self.mode = 0x80, "READSTATUS"
         elif m == "CLEARPART1":
             if d & 0xFF == 0xD0:
@@ -391,7 +393,8 @@ class IntelFlash:
                 if d & 0xFF == 0xD0:
                     for i, v in enumerate(self.wb):
                         w = self.wb_start + i
-                        self.data[2 * w], self.data[2 * w + 1] = v & 0xFF, v >> 8
+                        self.data[2 * w] &= v & 0xFF
+                        self.data[2 * w + 1] &= v >> 8
                     self.status = 0x80
                 else:
                     self.status = 0x30

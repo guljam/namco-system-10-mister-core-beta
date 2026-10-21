@@ -23,4 +23,4 @@ sed -E 's/((i_pixel_out_y|ypos_cross|ypos_screen|ypos_gun) *=> *)to_integer\([^)
 GPU_FILES="$R/dpram.vhd $R/divider.vhd $R/pGPU.vhd $R/mul32u.vhd $R/mul9s.vhd \
    $R/gpu_fillVram.vhd $R/gpu_cpu2vram.vhd $R/gpu_vram2vram.vhd gen/gpu_vram2cpu.vhd $R/gpu_line.vhd $R/gpu_rect.vhd \
    gen/gpu_poly.vhd $PP $R/gpu_overlay.vhd $R/gpu_dither.vhd gen/gpu_videoout_async.vhd $R/gpu_videoout_sync.vhd \
-   $R/gpu_crosshair.vhd $R/justifier_sensor.vhd gen/gpu_videoout.vhd gen/gpu.vhd tb_gpu.vhd"
+   $R/gpu_crosshair.vhd $R/justifier_sensor.vhd gen/gpu_videoout.vhd $R/gpu_frametime.vhd gen/gpu.vhd tb_gpu.vhd"

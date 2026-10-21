@@ -5,6 +5,7 @@ use IEEE.std_logic_1164.all;
 package tb_probe_pkg is
    signal probe_sig   : std_logic_vector(63 downto 0);
    signal probe2_sig  : std_logic_vector(63 downto 0);
+   signal probe3_sig  : std_logic_vector(63 downto 0);
    signal probe_clear : std_logic := '0';
 end package;
 
@@ -21,5 +22,6 @@ architecture sim of ns10_probe is
 begin
    g1 : if ID = "SPUT" generate probe_sig  <= probe; end generate;
    g2 : if ID = "SPU2" generate probe2_sig <= probe; end generate;
+   g3 : if ID = "SPUO" generate probe3_sig <= probe; end generate;
    source(0) <= probe_clear;
 end architecture;

@@ -28,7 +28,8 @@ entity gpu_videoout is
       debugmodeOn                : in  std_logic;
          
       fpscountOn                 : in  std_logic;
-      fpscountBCD                : in  unsigned(7 downto 0);     
+      frametimeBCD               : in  unsigned(15 downto 0);  -- NS10: frame time "dd.dd" ms (fps counter replaced)
+      frametimeSlow              : in  std_logic;
    
       Gun1CrosshairOn            : in  std_logic;
       Gun1X                      : in  unsigned(7 downto 0);
@@ -127,9 +128,11 @@ architecture arch of gpu_videoout is
    signal overlay_data        : std_logic_vector(23 downto 0);
    signal overlay_ena         : std_logic;
    
-   signal fpstext             : unsigned(15 downto 0);
+   signal fpstext             : unsigned(39 downto 0);
    signal overlay_fps_data    : std_logic_vector(23 downto 0);
    signal overlay_fps_ena     : std_logic;
+   signal overlay_fpsr_data   : std_logic_vector(23 downto 0);
+   signal overlay_fpsr_ena    : std_logic;
    
    signal overlay_cd_data     : std_logic_vector(23 downto 0);
    signal overlay_cd_ena      : std_logic;
@@ -382,13 +385,38 @@ begin
   
   
    -- overlays
-   fpstext( 7 downto 0) <= resize(fpscountBCD(3 downto 0), 8) + 16#30#;
-   fpstext(15 downto 8) <= resize(fpscountBCD(7 downto 4), 8) + 16#30#;
+   -- NS10: frame time "16.68", blue, red while frames are missed (digit > 9 -> '-')
+   gfpstext : for i in 0 to 3 generate
+      fpstext(i * 8 + 7 + (i / 2) * 8 downto i * 8 + (i / 2) * 8) <= resize(frametimeBCD(i * 4 + 3 downto i * 4), 8) + 16#30# when (frametimeBCD(i * 4 + 3 downto i * 4) < 10) else x"2D";
+   end generate;
+   fpstext(23 downto 16) <= x"2E";
    
    ioverlayFPS : entity work.gpu_overlay
    generic map
    (
-      COLS                   => 2,
+      COLS                   => 5,
+      BACKGROUNDON           => '1',
+      RGB_BACK               => x"FFFFFF",
+      RGB_FRONT              => x"FF0000",
+      OFFSETX                => 4,
+      OFFSETY                => 4
+   )
+   port map
+   (
+      clk                    => clkvid,
+      ce                     => videoout_out.ce,
+      ena                    => fpscountOn and not frametimeSlow,
+      i_pixel_out_x          => videoout_request_clkvid.xpos,
+      i_pixel_out_y          => to_integer(videoout_request_clkvid.lineDisp),
+      o_pixel_out_data       => overlay_fps_data,
+      o_pixel_out_ena        => overlay_fps_ena,
+      textstring             => fpstext
+   );
+   
+   ioverlayFPSred : entity work.gpu_overlay
+   generic map
+   (
+      COLS                   => 5,
       BACKGROUNDON           => '1',
       RGB_BACK               => x"FFFFFF",
       RGB_FRONT              => x"0000FF",
@@ -399,11 +427,11 @@ begin
    (
       clk                    => clkvid,
       ce                     => videoout_out.ce,
-      ena                    => fpscountOn,                    
+      ena                    => fpscountOn and frametimeSlow,
       i_pixel_out_x          => videoout_request_clkvid.xpos,
       i_pixel_out_y          => to_integer(videoout_request_clkvid.lineDisp),
-      o_pixel_out_data       => overlay_fps_data,
-      o_pixel_out_ena        => overlay_fps_ena,
+      o_pixel_out_data       => overlay_fpsr_data,
+      o_pixel_out_ena        => overlay_fpsr_ena,
       textstring             => fpstext
    );
    
@@ -581,12 +609,13 @@ begin
       out_irq10      => Gun2IRQ10
    );
 
-   overlay_ena <= overlay_error_ena or overlay_lba_ena or overlay_cd_ena or overlay_fps_ena or debugtextDbg_ena or (overlay_Gun1_ena and Gun1CrosshairOn) or (overlay_Gun2_ena and Gun2CrosshairOn);
+   overlay_ena <= overlay_error_ena or overlay_lba_ena or overlay_cd_ena or overlay_fps_ena or overlay_fpsr_ena or debugtextDbg_ena or (overlay_Gun1_ena and Gun1CrosshairOn) or (overlay_Gun2_ena and Gun2CrosshairOn);
    
    overlay_data <= overlay_error_data when (overlay_error_ena = '1') else
                    overlay_lba_data   when (overlay_lba_ena = '1') else
                    overlay_cd_data    when (overlay_cd_ena = '1') else
                    overlay_fps_data   when (overlay_fps_ena = '1') else
+                   overlay_fpsr_data  when (overlay_fpsr_ena = '1') else
                    debugtextDbg_data  when (debugtextDbg_ena = '1') else
                    x"0000FF"          when (overlay_Gun1_ena = '1' and Gun1CrosshairOn = '1') else
                    x"FFFF00"          when (overlay_Gun2_ena = '1' and Gun2CrosshairOn = '1') else

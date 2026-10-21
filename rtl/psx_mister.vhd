@@ -48,6 +48,7 @@ entity psx_mister is
       LBAtext               : in  unsigned(39 downto 0);
       drawAllLines          : in  std_logic;
       fieldLock             : in  std_logic;
+      romBusFast            : in  std_logic;
       PATCHSERIAL           : in  std_logic;
       noTexture             : in  std_logic;
       textureFilter         : in  std_logic_vector(1 downto 0);
@@ -374,6 +375,7 @@ begin
       LBAtext               => LBAtext,
       drawAllLines          => drawAllLines,
       fieldLock             => fieldLock,
+      romBusFast            => romBusFast,
       PATCHSERIAL           => PATCHSERIAL,
       noTexture             => noTexture,
       textureFilter         => textureFilter,

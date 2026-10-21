@@ -187,6 +187,7 @@ string      rw;
 reg  [31:0] a;
 reg  [15:0] mk, d, got;
 integer     chk, dbg;
+longint     lat_sum = 0, lat_n = 0, cyc;
 reg   [7:0] cb[0:'h183];
 
 initial begin
@@ -242,7 +243,9 @@ initial begin
 		@(posedge clk1x);
 		e1_rd <= 0; e1_wr <= 0; e3_rd <= 0; e3_wr <= 0;
 		@(posedge clk1x);
-		while (e1_busy) @(posedge clk1x);
+		cyc = 1;
+		while (e1_busy) begin @(posedge clk1x); cyc++; end
+		if (rw == "R" && a < 32'h1F800000) begin lat_sum += cyc; lat_n++; end
 		if (rw == "R" && chk) begin
 			got = (a < 32'h1F800000) ? e1_rdata : e3_rdata;
 			checked++;
@@ -256,6 +259,7 @@ initial begin
 				nvec, rw, a, d, got, board.raw, crypt.active, crypt.pc, crypt.pp, crypt.t2_mask, crypt.iv);
 		if (nvec % 200000 == 0) $display("%0d vectors, %0d mismatches", nvec, bad);
 	end
+	$display("EXP1 reads %0d, clk1x from strobe to data %0d, average %0.3f", lat_n, lat_sum, real'(lat_sum) / lat_n);
 	$display("RESULT: %0d vectors, %0d reads checked, %0d mismatches, %0d BIOS mismatches", nvec, checked, bad, bios_bad);
 	$finish;
 end

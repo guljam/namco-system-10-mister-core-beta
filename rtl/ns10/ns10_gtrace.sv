@@ -14,7 +14,11 @@
 //  9 IRQ write {addr[3:0], data[27:0]}      A vblank start {GP0 headers, GPUSTAT reads}
 //  B vblank start {DMA2 words[19:0], CPU GP0 writes[9:0], GPU idle, FIFO empty}
 //  C GPU FIFO full                          D DMA2 burst start  E DMA2 burst end {words}
-//  F control: data[31:28] 0 start {cfg[15:0], run[7:0]}, 1 end {lost[5:0], beats[21:0]}
+//  F control: data[31:28] 0 start {cfg[15:0], run[7:0]}, 1 end {lost[5:0], beats[21:0]},
+//              2 DMA4 (SPU) write {reg[27:26] 0 MADR / 1 BCR / 2 CHCR, data[25:0]},
+//              3 EXP3 write {addr[19:16], addr[7:0], data[15:0]} (MEM(M) bank 0x1FB4xxxx),
+//              4 vblank: EXP1 reads (16 bit strobes) since the last vblank,
+//              5 vblank: clk2x with the EXP1 wait (ROM board busy) since the last vblank
 //  Unused slots of the last burst are 0. The probe returns
 //  {state[1:0], lost != 0, 7'd0, beats written[21:0]}.
 //============================================================================
@@ -25,6 +29,11 @@ module ns10_gtrace #(parameter [25:0] TPS = 26'd4233600)   // ticks per second (
 
 	input      [39:0] dbg_gpu,
 	input      [43:0] dbg_bus,
+	input             e1_rd,         // NS10 EXP1 / EXP3 bus (clk1x strobes)
+	input             e1_wait,
+	input             e3_wr,
+	input      [20:0] e3_addr,
+	input      [15:0] e3_data,
 	input             trig,
 	input      [15:0] cfg,
 
@@ -94,8 +103,8 @@ function [63:0] ent(input [3:0] t, input [27:0] tm, input [31:0] d);
 endfunction
 
 // ------------------------------------------------------------------ event slots, one drained per clock
-localparam NS = 8;
-localparam S_G = 0, S_DONE = 1, S_BUS = 2, S_DMA = 3, S_FA = 4, S_FB = 5, S_FULL = 6, S_CTL = 7;
+localparam NS = 11;
+localparam S_G = 0, S_DONE = 1, S_BUS = 2, S_DMA = 3, S_FA = 4, S_FB = 5, S_FULL = 6, S_CTL = 7, S_E3 = 8, S_X1 = 9, S_X2 = 10;
 reg  [NS-1:0] pend = 0;
 reg    [63:0] slot[NS];
 
@@ -117,6 +126,8 @@ reg  [15:0] f_hdr, f_stat;
 reg  [19:0] f_dma;
 reg   [9:0] f_gp0;
 reg         vs_1, full_1;
+reg         e1_rd_1, e3_wr_1;
+reg  [27:0] x_rd, x_wait;
 reg         dma_on;
 reg   [7:0] dma_gap;
 reg  [31:0] dma_burst;
@@ -172,8 +183,10 @@ always @(posedge clk) begin
 			lost <= lost + 1'd1;
 	end
 
-	vs_1   <= g_vs;
-	full_1 <= g_full;
+	vs_1    <= g_vs;
+	full_1  <= g_full;
+	e1_rd_1 <= e1_rd;
+	e3_wr_1 <= e3_wr;
 
 	if (rec) begin
 		// ------------------------------------------------------------ GPU
@@ -208,6 +221,13 @@ always @(posedge clk) begin
 		if (b_dw && (b_addr == 7'h20 || b_addr == 7'h24 || b_addr == 7'h28 || b_addr == 7'h74))
 			`ADD(S_BUS, ent((b_addr == 7'h20) ? 4'h5 : (b_addr == 7'h24) ? 4'h6 : (b_addr == 7'h28) ? 4'h7 : 4'h8, etm, b_data));
 		if (b_iw) `ADD(S_BUS, ent(4'h9, etm, {b_addr[3:0], b_data[27:0]}));
+		if (b_dw && (b_addr == 7'h40 || b_addr == 7'h44 || b_addr == 7'h48))
+			`ADD(S_BUS, ent(4'hF, etm, {4'h2, b_addr[3:2], b_data[25:0]}));
+
+		// ------------------------------------------------------------ NS10 ROM board bus
+		if (e3_wr && !e3_wr_1) `ADD(S_E3, ent(4'hF, etm, {4'h3, e3_addr[19:16], e3_addr[7:0], e3_data}));
+		if (e1_rd && !e1_rd_1 && x_rd != 28'hFFFFFFF) x_rd <= x_rd + 1'd1;
+		if (e1_wait && x_wait != 28'hFFFFFFF) x_wait <= x_wait + 1'd1;
 
 		// ------------------------------------------------------------ DMA2 bursts (gap >= 256 clk2x ends a burst)
 		if (b_dmaw) begin
@@ -230,7 +250,10 @@ always @(posedge clk) begin
 		if (g_vs && !vs_1) begin
 			`ADD(S_FA, ent(4'hA, etm, {f_hdr, f_stat}));
 			`ADD(S_FB, ent(4'hB, etm, {f_dma, f_gp0, g_idle, g_empty}));
+			`ADD(S_X1, ent(4'hF, etm, {4'h4, x_rd}));
+			`ADD(S_X2, ent(4'hF, etm, {4'h5, x_wait}));
 			f_hdr <= 0; f_stat <= 0; f_dma <= 0; f_gp0 <= 0;
+			x_rd <= 0; x_wait <= 0;
 		end
 		if (g_full && !full_1) `ADD(S_FULL, ent(4'hC, etm, 32'd0));
 	end
@@ -244,6 +267,7 @@ always @(posedge clk) begin
 			wptr <= 0;
 			tdiv <= 0; tick <= 0; sub <= 0; sec <= 0;
 			f_hdr <= 0; f_stat <= 0; f_dma <= 0; f_gp0 <= 0;
+			x_rd <= 0; x_wait <= 0;
 			vram_cmd <= 0; par_left <= 0; dma_on <= 0;
 			pend[S_CTL] <= 1;
 			slot[S_CTL] <= {4'hF, 26'd0, 2'b00, 4'h0, 4'h0, cfg, run + 1'd1};

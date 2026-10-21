@@ -485,11 +485,10 @@ architecture arch of gpu is
    signal frameClearPosHigh         : unsigned(8 downto 0) := (others => '0');
    signal frameClearXPos            : unsigned(9 downto 0) := (others => '0');
    
-   -- fps counter
-   signal fpscountBCD               : unsigned(7 downto 0) := (others => '0');
-   signal fpscountBCD_next          : unsigned(7 downto 0) := (others => '0');
-   signal fps_SecondCounter         : integer range 0 to 33868799 := 0;
-   signal fps_vramRange_last        : unsigned(18 downto 0) := (others => '0');
+   -- NS10: frame time display (replaces the fps counter, see gpu_frametime.vhd)
+   signal frametime_dispWrite       : std_logic;
+   signal frametimeBCD              : unsigned(15 downto 0);
+   signal frametimeSlow             : std_logic;
    
    -- savestates
    type t_ssarray is array(0 to 7) of std_logic_vector(31 downto 0);
@@ -597,8 +596,6 @@ begin
             GPUSTAT_IRQRequest      <= ss_gpu_in(1)(24);
             GPUSTAT_DMADirection    <= ss_gpu_in(1)(30 downto 29);
             GPUREAD                 <= ss_gpu_in(0);       
-            
-            fpscountBCD_next        <= (others => '0');
             
             frameFastCount          <= 0;
             frameFastmode           <= '0';
@@ -769,26 +766,6 @@ begin
                end if;
             end if;
             
-            -- fps counter
-            if (videoout_reports.irq_VBLANK = '1') then
-               fps_vramRange_last <= vramRange;
-               if (vramRange /= fps_vramRange_last) then
-                  if (fpscountBCD_next(3 downto 0) = x"9") then
-                     fpscountBCD_next(7 downto 4) <= fpscountBCD_next(7 downto 4) + 1;
-                     fpscountBCD_next(3 downto 0) <= x"0";
-                  else
-                     fpscountBCD_next(3 downto 0) <= fpscountBCD_next(3 downto 0) + 1;
-                  end if;
-               end if;
-            end if;
-            
-            if (fps_SecondCounter = 33868799) then
-               fps_SecondCounter <= 0;
-               fpscountBCD       <= fpscountBCD_next;
-               fpscountBCD_next  <= (others => '0');       
-            else
-               fps_SecondCounter <= fps_SecondCounter + 1;            
-            end if;
 
             -- softreset
             if (softReset = '1') then
@@ -1965,6 +1942,20 @@ begin
    videoout_ss_in.GPUSTAT_InterlaceField  <= ss_gpu_in(1)(13);
    videoout_ss_in.GPUSTAT_DrawingOddline  <= ss_gpu_in(1)(31);
    
+   frametime_dispWrite <= '1' when (bus_write = '1' and bus_addr = 4 and bus_dataWrite(29 downto 24) = "000101") else '0';
+
+   igpu_frametime : entity work.gpu_frametime
+   port map
+   (
+      clk1x                => clk1x,
+      ce                   => ce,
+      reset                => reset,
+      vblank               => videoout_reports.irq_VBLANK,
+      dispWrite            => frametime_dispWrite,
+      timeBCD              => frametimeBCD,
+      slow                 => frametimeSlow
+   );
+
    igpu_videoout : entity work.gpu_videoout
    port map
    (
@@ -1988,7 +1979,8 @@ begin
       debugmodeOn                => debugmodeOn,
             
       fpscountOn                 => fpscountOn,
-      fpscountBCD                => fpscountBCD,
+      frametimeBCD               => frametimeBCD,
+      frametimeSlow              => frametimeSlow,
    
       Gun1CrosshairOn            => Gun1CrosshairOn,
       Gun1X                      => Gun1X,

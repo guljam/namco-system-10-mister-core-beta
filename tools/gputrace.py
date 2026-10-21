@@ -5,6 +5,7 @@
     python tools/gputrace.py fetch <out.bin>       # copy the trace from DDR3 0x3A000000 (SSH + /dev/mem)
     python tools/gputrace.py dump <in.bin> [out.txt]
     python tools/gputrace.py fields <in.bin> [out.txt]   # one line per vblank
+    python tools/gputrace.py rombus <in.bin> [out.txt]   # one line per vblank: flips, EXP1 reads / wait, SPU stream
 
 Entry: [63:60] type, [59:34] time (clk2x/16), [33] activeLineLSB, [32] inVsync, [31:0] data.
 """
@@ -96,6 +97,14 @@ def decode(t, d):
             return f"START run {d & 0xFF} cfg {(d >> 8) & 0xFFFF:04X}"
         if sub == 1:
             return f"END lost {(d >> 22) & 0x3F} beats {d & 0x3FFFFF}"
+        if sub == 2:
+            return f"DMA4 {('MADR', 'BCR', 'CHCR', '?')[(d >> 26) & 3]} {d & 0x3FFFFFF:07X}"
+        if sub == 3:
+            return f"EXP3 W {0x1FA00000 + (((d >> 24) & 0xF) << 16) + ((d >> 16) & 0xFF):08X} {d & 0xFFFF:04X}"
+        if sub == 4:
+            return f"EXP1 reads {d & 0xFFFFFFF}"
+        if sub == 5:
+            return f"EXP1 wait clk2x {d & 0xFFFFFFF}"
     return f"{d:08X}"
 
 
@@ -131,8 +140,34 @@ def fields(path, out=None):
             vram, dma, last_vbl, pending = [], [], s0, None
         elif t == 0xC:
             f.write(f"{s * 1000:10.2f}  GPU FIFO FULL\n")
-        elif t == 0xF:
+        elif t == 0xF and (d >> 28) <= 1:
             f.write(f"{s * 1000:10.2f}  {decode(t, d)}\n")
+
+
+def rombus(path, out=None):
+    """One line per vblank: GP1(05) flips, EXP1 16 bit reads and ROM board wait (clk1x) since the
+    previous vblank, MEM(M) bank writes, SPU IRQ acks and DMA4 (SPU stream) starts in that field."""
+    f = open(out, "w") if out else sys.stdout
+    f.write("     t(ms)  flip  e1reads  e1wait(clk1x)  wait/read  bankw  spuirq  dma4 starts (ms)\n")
+    flips = bankw = spuirq = 0
+    dma4, rd, vbl = [], None, None
+    for t, s, lsb, vs, d in entries(path):
+        if t == 4 and (d >> 24) == 5:
+            flips += 1
+        elif t == 9 and (d >> 28) == 0 and not (d & 0x200):
+            spuirq += 1
+        elif t == 0xF and (d >> 28) == 3 and ((d >> 24) & 0xF) == 4:
+            bankw += 1
+        elif t == 0xF and (d >> 28) == 2 and ((d >> 26) & 3) == 2 and (d & 0x1000000):
+            dma4.append(f"{s * 1000:.2f}")
+        elif t == 0xF and (d >> 28) == 4:
+            rd, vbl = d & 0xFFFFFFF, s
+        elif t == 0xF and (d >> 28) == 5 and rd is not None:
+            w = (d & 0xFFFFFFF) / 2
+            f.write(f"{vbl * 1000:10.2f}  {flips:4d}  {rd:7d}  {w:13.0f}  {w / rd if rd else 0:9.2f}  "
+                    f"{bankw:5d}  {spuirq:6d}  {' '.join(dma4)}\n")
+            flips = bankw = spuirq = 0
+            dma4, rd = [], None
 
 
 if __name__ == "__main__":
@@ -149,3 +184,5 @@ if __name__ == "__main__":
         dump(a[1], a[2] if len(a) > 2 else None)
     elif a[0] == "fields":
         fields(a[1], a[2] if len(a) > 2 else None)
+    elif a[0] == "rombus":
+        rombus(a[1], a[2] if len(a) > 2 else None)

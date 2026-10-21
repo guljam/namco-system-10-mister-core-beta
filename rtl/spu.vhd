@@ -249,7 +249,7 @@ architecture arch of spu is
    -- processing
    signal busy                : std_logic := '0';
    signal capturePosition     : unsigned(9 downto 0) := (others => '0');
-   signal sampleticks         : unsigned(9 downto 0) := (others => '0');
+   signal sampleticks         : unsigned(10 downto 0) := (others => '0');
    signal stashedSamples      : integer range 0 to 15 := 0;
    
    -- ram
@@ -378,6 +378,8 @@ architecture arch of spu is
    
    signal sample         : signed(15 downto 0);
    signal step           : unsigned(15 downto 0);
+   signal stepPitchMod   : std_logic := '0';
+   signal stepModVolume  : unsigned(15 downto 0);
    signal volumeSetting  : unsigned(15 downto 0);
    signal volumeSettingR : unsigned(15 downto 0);   
    signal adsrSetting    : unsigned(31 downto 0);
@@ -438,6 +440,9 @@ architecture arch of spu is
    
    signal reverb_reqAddr         : unsigned(15 downto 0);
    signal reverb_reqAddr2        : unsigned(17 downto 0);
+   signal reverb_reqAddr2_r      : unsigned(17 downto 0);
+   signal reverbCurrentAddrBase  : unsigned(17 downto 0);
+   signal reverb_issue           : std_logic := '0';
    signal reverbAddAddr          : unsigned(18 downto 0);
    signal reverb_calcAddr        : unsigned(18 downto 0);
    
@@ -522,6 +527,9 @@ architecture arch of spu is
    signal ss_voice_loading    : std_logic := '0';
    
    signal ss_timeout          : unsigned(23 downto 0);
+
+   signal ss_ram_doneHold     : std_logic := '0';
+   signal ss_ram_dataHold     : std_logic_vector(15 downto 0) := (others => '0');
       
    -- debug_out
    type outtype is record
@@ -542,8 +550,8 @@ begin
    )
    port map
    ( 
-      clk      => clk1x,     
-      reset    => FifoIn_reset,   
+      clk      => clk2x,
+      reset    => FifoIn_reset,
                 
       Din      => FifoIn_Din,     
       Wr       => FifoIn_Wr,      
@@ -564,8 +572,8 @@ begin
    )
    port map
    ( 
-      clk      => clk1x,     
-      reset    => FifoOut_reset,   
+      clk      => clk2x,
+      reset    => FifoOut_reset,
                 
       Din      => FifoOut_Din,     
       Wr       => FifoOut_Wr,      
@@ -577,7 +585,8 @@ begin
       Empty    => FifoOut_Empty   
    );
    
-   FifoOut_Rd   <= dma_read     when (FifoOut_Empty = '0') else '0';
+   -- DMA reads in clk1x: advance on the clk2x edge that coincides with the clk1x edge (clk2xIndex = '0')
+   FifoOut_Rd   <= dma_read     when (FifoOut_Empty = '0' and clk2xIndex = '0') else '0';
    dma_readdata <= FifoOut_Dout when (FifoOut_Empty = '0') else (others => '0');
    
    writeDMAReady <= rep_done when (REPRODUCIBLESPUDMA = '1') else FifoIn_Empty;
@@ -600,7 +609,7 @@ begin
    ispu_gauss : entity work.spu_gauss
    port map
    (
-      clk1x          => clk1x,        
+      clk            => clk2x,
       interpolIndex  => voice.adpcmSamplePos(11 downto 4),
       gauss1         => gauss1,       
       gauss2         => gauss2,       
@@ -620,7 +629,7 @@ begin
          width_byteena => 1
       )
       PORT MAP (
-         inclock    => clk1x,
+         inclock    => clk2x,
          wren       => RamVoice_write,
          data       => RamVoice_dataA,
          wraddress  => std_logic_vector(RamVoice_addrA),
@@ -629,10 +638,10 @@ begin
       );
    end generate;
    
-   RamVoice_addrB(0) <= bus_addr(8 downto 1);
+   -- NS10: savestate reads use the CPU port (clk1x -> clk1x), keeps the clk2x processing port mux short
+   RamVoice_addrB(0) <= (SS_Adr(7 downto 0) - 64) when (SS_rden = '1') else bus_addr(8 downto 1);
    
-   RamVoice_addrB(1) <= (SS_Adr(7 downto 0) - 64)         when (SS_rden = '1')            else 
-                        to_unsigned(((index * 8) + 4), 8) when (state = VOICE_START)      else -- read ADSR Attack / Decay / Sustain / Release
+   RamVoice_addrB(1) <= to_unsigned(((index * 8) + 4), 8) when (state = VOICE_START)      else -- read ADSR Attack / Decay / Sustain / Release
                         to_unsigned(((index * 8) + 5), 8) when (state = VOICE_READHEADER) else -- read ADSR Attack / Decay / Sustain / Release
                         to_unsigned(((index * 8) + 0), 8) when (state = VOICE_EVALHEADER) else -- read Volume Left  
                         to_unsigned(((index * 8) + 1), 8) when (state = VOICE_EVALSAMPLE) else -- read Volume Right
@@ -654,7 +663,7 @@ begin
          width_byteena => 1
       )
       PORT MAP (
-         inclock    => clk1x,
+         inclock    => clk2x,
          wren       => RamVoiceVolumes_write,
          data       => RamVoiceVolumes_dataA,
          wraddress  => std_logic_vector(RamVoiceVolumes_addrA),
@@ -663,10 +672,9 @@ begin
       );
    end generate;
    
-   RamVoiceVolumes_addrB(0) <= bus_addr(6 downto 1);
+   RamVoiceVolumes_addrB(0) <= SS_Adr(5 downto 0) when (SS_rden = '1') else bus_addr(6 downto 1);
    
-   RamVoiceVolumes_addrB(1) <= SS_Adr(5 downto 0)                when (SS_rden = '1')            else 
-                               to_unsigned(((index * 2) + 0), 6) when (state = VOICE_START)      else -- left value
+   RamVoiceVolumes_addrB(1) <= to_unsigned(((index * 2) + 0), 6) when (state = VOICE_START)      else -- left value
                                to_unsigned(((index * 2) + 1), 6);                                     -- right value
      
 -- VOICERECORDS
@@ -681,7 +689,7 @@ begin
          width_byteena => 1
       )
       PORT MAP (
-         inclock    => clk1x,
+         inclock    => clk2x,
          wren       => RamVoiceRecord_write,
          data       => RamVoiceRecord_dataA,
          wraddress  => std_logic_vector(RamVoiceRecord_addrA),
@@ -701,12 +709,12 @@ begin
       generic map (addr_width => 8, data_width => 16)
       port map
       (
-         clock_a     => clk1x,
+         clock_a     => clk2x,
          address_a   => std_logic_vector(adpcm_ram_address_a),
          data_a      => adpcm_ram_data_a(i),
          wren_a      => adpcm_ram_wren_a(i),
          
-         clock_b     => clk1x,
+         clock_b     => clk2x,
          address_b   => std_logic_vector(adpcm_ram_address_b(i)),
          data_b      => x"0000",
          wren_b      => '0',
@@ -724,7 +732,7 @@ begin
       width_byteena => 1
    )
    PORT MAP (
-      inclock    => clk1x,
+      inclock    => clk2x,
       wren       => EnvCounterRam_write,
       data       => EnvCounterRam_dataA,
       wraddress  => std_logic_vector(EnvCounterRam_addrA),
@@ -736,7 +744,7 @@ begin
      
 -- savestates
      
-   ss_out(1)( 9 downto 0)   <= std_logic_vector(sampleticks);    
+   ss_out(1)(10 downto 0)   <= std_logic_vector(sampleticks);
    ss_out(2)( 9 downto 0)   <= std_logic_vector(capturePosition);
    ss_out(3)(18 downto 0)   <= std_logic_vector(ramTransferAddr);   
    ss_out(4)(17 downto 0)   <= std_logic_vector(reverbCurrentAddress);
@@ -801,7 +809,11 @@ begin
    ss_out(61)(31 downto 16) <= REVERB_vRIN   ;	          
 
 -- cpu interface + processing
-   process(clk1x)
+   -- NS10: runs at clk2x (2 x 33.8688 MHz) with 1024 clocks per sample (66.15 kHz), so a sample has twice the
+   -- processing clocks of the PSX SPU at 512 clk1x. Inputs from the clk1x side (bus, DMA, savestates) are
+   -- taken once per clk1x cycle on the clk2x edge that coincides with the clk1x edge (clk2xIndex = '0'),
+   -- pulses to the clk1x side are held until that edge so clk1x samples them exactly once.
+   process(clk2x)
       variable env_calcticks       : unsigned(23 downto 0);
       variable env_rate            : unsigned(6 downto 0);
       variable env_calcstep        : signed(16 downto 0);
@@ -825,9 +837,10 @@ begin
       variable soundmulresult      : signed(39 downto 0);
       variable reverbInputLeft_v   : signed(15 downto 0);
       variable reverbInputRight_v  : signed(15 downto 0);
+      variable step_v              : unsigned(15 downto 0);
    begin
-      if (rising_edge(clk1x)) then
-            
+      if (rising_edge(clk2x)) then
+
          FifoIn_Wr               <= '0';
          FifoIn_Rd               <= '0';
          FifoIn_reset            <= '0';
@@ -849,9 +862,11 @@ begin
          ram_isVoice             <= '0';
          ram_isReverb            <= '0';
             
-         sound_timeout           <= '0';
-         
-         if (SS_reset = '1') then
+         if (clk2xIndex = '0') then
+            sound_timeout        <= '0';
+         end if;
+
+         if (SS_reset = '1' and clk2xIndex = '0') then
             ss_voice_loading <= '1';
             RamVoice_write <= '1';
             RamVoice_dataA <= x"0000";
@@ -918,7 +933,7 @@ begin
             cd_next_left         <= (others => '0');
             cd_next_right        <= (others => '0');
                
-            sampleticks          <= to_unsigned(512, 10); --unsigned(ss_in(1)(9 downto 0));
+            sampleticks          <= to_unsigned(1024, 11); --unsigned(ss_in(1)(9 downto 0));
             
             if (loading_savestate = '0') then
                capturePosition      <= (others => '0');
@@ -987,7 +1002,9 @@ begin
             end if;
             
          elsif (SS_wren = '1') then
-            
+
+          if (clk2xIndex = '0') then
+
             if (to_integer(SS_Adr) =  2) then capturePosition      <= unsigned(SS_DataWrite(9 downto 0));  end if;
             if (to_integer(SS_Adr) =  3) then ramTransferAddr      <= unsigned(SS_DataWrite(18 downto 0)); end if;
             if (to_integer(SS_Adr) =  4) then reverbCurrentAddress <= unsigned(SS_DataWrite(17 downto 0)); end if;
@@ -1094,10 +1111,14 @@ begin
                   when others =>
                end case;
             end if;
-            
+
+          end if;
+
          elsif (ce = '1') then
-         
-            irqOut <= '0';
+
+            if (clk2xIndex = '0') then
+               irqOut <= '0';
+            end if;
             
             envelope_startnext <= '0';
             
@@ -1121,8 +1142,8 @@ begin
                end if;
             end if;
          
-            if (bus_write = '1') then
-               
+            if (bus_write = '1' and clk2xIndex = '0') then
+
                if (bus_addr < 16#180#) then
                   RamVoice_write <= '1';
                   RamVoice_dataA <= bus_dataWrite;
@@ -1227,7 +1248,7 @@ begin
             
             end if; -- end bus write
          
-            if (bus_read = '1') then
+            if (bus_read = '1' and clk2xIndex = '0') then
                bus_dataRead <= (others => '1');
                if (bus_addr < 16#180#) then
                   bus_dataRead <= RamVoice_dataB(0);   
@@ -1471,9 +1492,13 @@ begin
             adsr_target(ADSR_RELEASE) <= (others => '0');
             
             -- processing
-            spu_tick <= '0';
-            -- NS10: CXD2938Q runs at 101.4912 MHz / 2 = 1.5 x PSX, 768 SPU clocks per sample = 66.15 kHz
-            if (sampleticks < 511) then
+            reverb_issue <= '0';    -- default before the state case: set to '1' there, used after the case one clock later
+            if (clk2xIndex = '0') then
+               spu_tick <= '0';
+            end if;
+            -- NS10: CXD2938Q runs at 101.4912 MHz / 2 = 1.5 x PSX, 768 SPU clocks per sample = 66.15 kHz,
+            -- here 1024 clk2x per sample
+            if (sampleticks < 1023) then
                sampleticks <= sampleticks + 1;
             else
                sampleticks <= (others => '0');
@@ -1724,9 +1749,12 @@ begin
                   else voice_lastVolume <= adsr_volumeCalc(15 downto 0);
                   end if;
                   
-                  step       <= unsigned(RamVoice_dataB(1));
+                  -- pitch modulation (previous voice's volume) is multiplied in VOICE_APPLYVOLUME
+                  step          <= unsigned(RamVoice_dataB(1));
+                  stepModVolume <= unsigned(voice_lastVolume + x"8000");
+                  stepPitchMod  <= '0';
                   if (index > 0 and PITCHMODENA(index) = '1') then
-                     step <= resize(shift_right(unsigned(RamVoice_dataB(1)) * unsigned(voice_lastVolume + x"8000"), 15), 16);
+                     stepPitchMod <= '1';
                   end if;
                   
                   for i in 0 to 3 loop
@@ -1781,8 +1809,12 @@ begin
                      chanLeft  <= resize(shift_right(volume *  volLeft, 15), 18);
                      chanRight <= resize(shift_right(volume * volRight, 15), 18);
                      
-                     if (step < 16#3FFF#) then
-                        voice.adpcmSamplePos <= voice.adpcmSamplePos + step;
+                     step_v := step;
+                     if (stepPitchMod = '1') then
+                        step_v := resize(shift_right(step * stepModVolume, 15), 16);
+                     end if;
+                     if (step_v < 16#3FFF#) then
+                        voice.adpcmSamplePos <= voice.adpcmSamplePos + step_v;
                      else
                         voice.adpcmSamplePos <= voice.adpcmSamplePos + 16#3FFF#;
                      end if;
@@ -1899,7 +1931,7 @@ begin
                   
                   ram_Adr         <= std_logic_vector(ramTransferAddr);
                   
-                  -- NS10: 512 clk per sample (66 kHz) instead of 768; while samples are stashed only one data
+                  -- NS10: 1024 clk2x per sample (66 kHz; before spu-fix 512 clk1x); while samples are stashed only one data
                   -- transfer per sample (last voice slot), so a sample upload cannot push the SPU behind until it
                   -- drops samples (error EA). The transfer must not stop completely: when the SPU is behind even
                   -- without transfers (Star Trigon boot) the stash never empties and the game hangs on its upload.
@@ -1951,7 +1983,7 @@ begin
                   end if;
                   
                when RAM_WAIT =>
-                  if (voiceCounter >= 23 or useSDRAM = '0') then
+                  if (voiceCounter >= 23 or useSDRAM = '0') then -- NS10: SDRAM mode (useSDRAM) is not timed for the clk2x SPU
                      if (index = 23) then
                         if (cnt(0) = '1' and cnt(2) = '1') then
                            reverbInputLeft_v  := clamp16(reverbsumleft  + resize(cd_next_left, 24));
@@ -2012,10 +2044,7 @@ begin
                   if (reverb_count = 0 or ram_done = '1') then
                      reverb_count <= reverb_count + 1;
                      if (reverb_count < 4) then
-                        ram_request    <= '1';
-                        ram_isReverb   <= '1';
-                        ram_rnw        <= '1';
-                        ram_Adr        <= std_logic_vector(reverb_calcAddr);
+                        reverb_issue   <= '1';
                      end if;
                      case (reverb_count) is
                         when 1 => reverbReadval1 <= signed(ram_dataRead); 
@@ -2103,10 +2132,7 @@ begin
                   if (reverb_count = 0 or ram_done = '1') then
                      reverb_count <= reverb_count + 1;
                      if (reverb_count < 2) then
-                        ram_request    <= '1';
-                        ram_isReverb   <= '1';
-                        ram_rnw        <= '0';
-                        ram_Adr        <= std_logic_vector(reverb_calcAddr);
+                        reverb_issue   <= '1';
                      end if;
                      case (reverb_count) is
                         when 0 => ram_dataWrite <= std_logic_vector(IIR_A); 
@@ -2120,10 +2146,7 @@ begin
                   if (reverb_count = 0 or ram_done = '1') then
                      reverb_count <= reverb_count + 1;
                      if (reverb_count < 6) then
-                        ram_request    <= '1';
-                        ram_isReverb   <= '1';
-                        ram_rnw        <= '1';
-                        ram_Adr        <= std_logic_vector(reverb_calcAddr);
+                        reverb_issue   <= '1';
                      end if;
                      case (reverb_count) is
                         when 1 => reverbReadval1 <= signed(ram_dataRead); 
@@ -2230,10 +2253,7 @@ begin
                   if (reverb_count = 0 or ram_done = '1') then
                      reverb_count <= reverb_count + 1;
                      if (reverb_count < 2) then
-                        ram_request    <= '1';
-                        ram_isReverb   <= '1';
-                        ram_rnw        <= '0';
-                        ram_Adr        <= std_logic_vector(reverb_calcAddr);
+                        reverb_issue   <= '1';
                      end if;
                      case (reverb_count) is
                         when 0 => ram_dataWrite <= std_logic_vector(MDA); 
@@ -2336,6 +2356,21 @@ begin
                   
             end case;
 
+            -- reverb RAM request one clock after the access was decided: reverb_reqAddr2_r holds the offset
+            -- of that access (registered from the reverb_count / state of the deciding clock)
+            if (reverb_issue = '1') then
+               ram_request    <= '1';
+               ram_isReverb   <= '1';
+               if (state = REVERB_READ1 or state = REVERB_READ2) then
+                  ram_rnw     <= '1';
+               else
+                  ram_rnw     <= '0';
+               end if;
+               ram_Adr        <= std_logic_vector(reverb_calcAddr);
+            end if;
+            reverb_reqAddr2_r     <= reverb_reqAddr2;
+            reverbCurrentAddrBase <= reverbCurrentAddress + (unsigned(REVERB_mBASE) & "00");
+
             busy <= '0';
             if (CNT(5 downto 4) = "10" and FifoIn_Empty = '0') then
                busy <= '1';
@@ -2402,14 +2437,14 @@ begin
 
          end if; -- ce
          
-         if (rep_counter > 0 and cpuPaused = '0') then
+         if (rep_counter > 0 and cpuPaused = '0' and clk2xIndex = '0') then
             rep_counter <= rep_counter - 1;
             if (rep_counter = 1) then
                rep_done <= '1';
             end if;
          end if;
          
-         if (dma_write = '1' and ce = '1') then
+         if (dma_write = '1' and ce = '1' and clk2xIndex = '0') then
             if (FifoIn_Full = '0') then
                FifoIn_Wr  <= '1';
                FifoIn_Din <= dma_writedata;
@@ -2420,7 +2455,7 @@ begin
             end if;
          end if;
          
-         if (dma_read = '1' and FifoOut_Cnt > 0) then
+         if (dma_read = '1' and clk2xIndex = '0' and FifoOut_Cnt > 0) then
             FifoOut_Cnt <= FifoOut_Cnt - 1;
             if (state = RAM_READ and ram_done = '1') then
                FifoOut_Cnt <= FifoOut_Cnt;
@@ -2436,8 +2471,8 @@ begin
             sound_out_right <= (others => '0');
          end if;
          
-         if (SS_RAM_request = '1') then
-            ram_dataWrite  <= SS_RAM_dataWrite;    
+         if (SS_RAM_request = '1' and clk2xIndex = '0') then
+            ram_dataWrite  <= SS_RAM_dataWrite;
             ram_Adr        <= SS_RAM_Adr;       
             ram_request    <= SS_RAM_request; 
             ram_isTransfer <= '1';            
@@ -2508,16 +2543,29 @@ begin
    reverb_reqAddr2 <= ((reverb_reqAddr & "00") - 1) when (state = REVERB_READ1 and (reverb_count = 2 or reverb_count = 3)) else
                       (reverb_reqAddr & "00");                    
                  
-   reverbAddAddr   <= ('0' & reverb_reqAddr2) + ('0' & reverbCurrentAddress);
-   
-   reverb_calcAddr <= resize(reverbAddAddr + (unsigned(REVERB_mBASE) & "00"), 18) & '0' when (reverbAddAddr(18) = '1') else resize(reverbAddAddr, 18) & '0';
+   -- address of the access decided one clock earlier (reverb_issue), offset + base added in parallel
+   reverbAddAddr   <= ('0' & reverb_reqAddr2_r) + ('0' & reverbCurrentAddress);
+
+   reverb_calcAddr <= (reverb_reqAddr2_r + reverbCurrentAddrBase) & '0' when (reverbAddAddr(18) = '1') else resize(reverbAddAddr, 18) & '0';
    
 --##############################################################
 --############################### RAM IF
 --##############################################################
    
-   SS_RAM_dataRead   <= ram_dataRead;
-   SS_RAM_done       <= ram_done;
+   SS_RAM_dataRead   <= ss_ram_dataHold;
+   SS_RAM_done       <= ss_ram_doneHold;
+
+   process (clk2x)
+   begin
+      if rising_edge(clk2x) then
+         if (ram_done = '1') then
+            ss_ram_doneHold <= '1';
+            ss_ram_dataHold  <= ram_dataRead;
+         elsif (clk2xIndex = '0') then
+            ss_ram_doneHold <= '0';
+         end if;
+      end if;
+   end process;
    
    idbgprobe : ns10_probe
    generic map (ID => "SPUT")
@@ -2527,6 +2575,17 @@ begin
       source => dbg_clear
    );
 
+   -- synthesis translate_off
+   -- sim only (sim/spu bench sample log): end processing step, output sample
+   idbgsample : ns10_probe
+   generic map (ID => "SPUO")
+   port map
+   (
+      probe  => x"000000" & "00000" & std_logic_vector(to_unsigned(endProcStep, 3)) & sound_out_right & sound_out_left,
+      source => open
+   );
+   -- synthesis translate_on
+
    idbgprobe2 : ns10_probe
    generic map (ID => "SPU2")
    port map
@@ -2535,9 +2594,10 @@ begin
       source => dbg_clear2
    );
 
-   process (clk1x)
+   -- counts in clk2x cycles (budget 1024 per sample)
+   process (clk2x)
    begin
-      if rising_edge(clk1x) then
+      if rising_edge(clk2x) then
          if (ram_request = '1') then
             dbg_pending <= '1';
             if (ram_rnw = '0') then dbg_kind <= 1; elsif (ram_isVoice = '1') then dbg_kind <= 0; else dbg_kind <= 2; end if;
@@ -2577,9 +2637,7 @@ begin
    ispu_ram : entity work.spu_ram
    port map
    (
-      clk1x                => clk1x, 
       clk2x                => clk2x,    
-      clk2xIndex           => clk2xIndex,      
       ce                   => ce,                 
       reset                => reset,              
                            
@@ -2634,7 +2692,7 @@ begin
       if (rising_edge(clk1x)) then
          
          SS_idle <= '0';
-         if ((FifoIn_Empty = '1' or ss_timeout(23) = '1') and (FifoOut_Empty = '1' or ss_timeout(23) = '1') and state = IDLE and sampleticks < 504 and sampleticks > 0 and stashedSamples = 0) then
+         if ((FifoIn_Empty = '1' or ss_timeout(23) = '1') and (FifoOut_Empty = '1' or ss_timeout(23) = '1') and state = IDLE and sampleticks < 1008 and sampleticks > 0 and stashedSamples = 0) then
             SS_idle    <= '1';
             if (FifoIn_Empty = '1' and FifoOut_Empty = '1') then
                ss_timeout <= (others => '0');
@@ -2649,9 +2707,9 @@ begin
             if (SS_Adr < 64) then
                SS_DataRead <= ss_out(to_integer(SS_Adr));
             elsif (SS_Adr >= 64 and SS_Adr < 256) then
-               SS_DataRead <= x"0000" & RamVoice_dataB(1);
+               SS_DataRead <= x"0000" & RamVoice_dataB(0);
             elsif (SS_Adr >= 256 and SS_Adr < 304) then
-               SS_DataRead <= x"0000" & RamVoiceVolumes_dataB(1);    
+               SS_DataRead <= x"0000" & RamVoiceVolumes_dataB(0);    
             elsif (SS_Adr >= 320 and SS_Adr < 370) then
                SS_DataRead <= "0000000" & EnvCounterRam_dataB;
             elsif (SS_Adr >= 384 and SS_Adr < 480) then

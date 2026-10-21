@@ -52,6 +52,7 @@ entity psx_top is
       LBAtext               : in  unsigned(39 downto 0);  -- NS10: overlay text, 5 ASCII chars
       drawAllLines          : in  std_logic;
       fieldLock             : in  std_logic;
+      romBusFast            : in  std_logic;  -- NS10: EXP1 accesses skip the memctrl delays (MAME has no bus wait states)
       PATCHSERIAL           : in  std_logic;
       noTexture             : in  std_logic;
       textureFilter         : in  std_logic_vector(1 downto 0);
@@ -353,6 +354,7 @@ architecture arch of psx_top is
    signal bios_memctrl           : unsigned(13 downto 0);
    
    signal ex1_memctrl            : unsigned(13 downto 0);
+   signal ex1_memctrl_mux        : unsigned(13 downto 0);
    
    signal bus_memc_addr          : unsigned(5 downto 0); 
    signal bus_memc_dataWrite     : std_logic_vector(31 downto 0);
@@ -704,6 +706,9 @@ architecture arch of psx_top is
    signal debug_firstGTE         : std_logic;
    
 begin 
+   
+   -- NS10: RDelay, RecP, Float and PStrobe cleared for EXP1 (16 bit width, autoinc, WDelay, Hold kept)
+   ex1_memctrl_mux <= ex1_memctrl and "11001000001111" when (romBusFast = '1') else ex1_memctrl;
    
    -- reset
    process (clk1x)
@@ -1656,7 +1661,7 @@ begin
 
       bios_memctrl         => bios_memctrl,
 
-      ex1_memctrl          => ex1_memctrl,
+      ex1_memctrl          => ex1_memctrl_mux,
       bus_exp1_addr        => exp1_addr,   
       bus_exp1_dataWrite   => exp1_dataWrite,
       bus_exp1_be          => exp1_be,

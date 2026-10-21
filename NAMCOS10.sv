@@ -117,10 +117,10 @@ wire reset_or = RESET | buttons[1] | status[0] | rom_download | cfg_download | n
 // 0         1         2         3          4         5         6          7         8         9
 // 01234567890123456789012345678901 23456789012345678901234567890123 45678901234567890123456789012345
 // 0123456789ABCDEFGHIJKLMNOPQRSTUV 0123456789ABCDEFGHIJKLMNOPQRSTUV
-// X      XX                        XXXX     X                      X                XXXXXX
+// X      XX                        XXXX     X                      X                XXXXXX  X
 // 96..104: Test switch, DIP SW1
-// 81..86: debug build only (NS10_DEBUG, revision NAMCOS10); the release revision NAMCOS10_release
-//         runs them at their defaults (Turbo High, Cache Full, Interlace Drawing PSX, Field Lock On)
+// 81..86, 89: debug build only (NS10_DEBUG, revision NAMCOS10); the release revision NAMCOS10_release
+//         runs them at their defaults (Turbo High, Cache Full, Interlace Drawing PSX, Field Lock On, ROM Bus Wait MAME)
 
 `ifdef NS10_DEBUG
 localparam [0:0] DEBUG = 1;
@@ -156,6 +156,7 @@ parameter CONF_STR = {
 	"O[84],Interlace Drawing,PSX,MAME;",            // debug: MAME draws both fields (startrgn / gamshara breakage test)
 	"T[85],Trace GPU 10 s;",                        // debug: rtl/ns10/ns10_gtrace.sv, tools/gputrace.py
 	"O[86],Interlace Field Lock,On,Off;",           // GPU 1.5x slower than NS10: overrunning frame keeps its field (startrgn / gamshara)
+	"O[89],ROM Bus Wait,MAME,PSX;",                  // PSX: EXP1 memctrl delays as on a PSX (A/B test of the mrdrilr2j scene load stutter)
 `endif
 	"O[64],Pause when OSD is open,Off,On;",
 	"-;",
@@ -467,7 +468,8 @@ ns10_gtrace ns10_gtrace
 (
 	.clk(clk_2x),
 	.dbg_gpu(dbg_gpu), .dbg_bus(dbg_bus), .trig(status[85]),
-	.cfg({11'd0, cache_half, 1'b0, status[83], turbo}),
+	.e1_rd(exp1_read), .e1_wait(exp1_wait), .e3_wr(exp3_write), .e3_addr(exp3_addr), .e3_data(exp3_dataWrite),
+	.cfg({status[89], 10'd0, cache_half, 1'b0, status[83], turbo}),
 	.t_req(gt_req), .t_addr(gt_addr), .t_din(gt_din), .t_beat(gt_beat), .t_done(gt_done),
 	.text(gt_text), .text_on(gt_text_on)
 );
@@ -515,7 +517,7 @@ psx
    .interlaced480pHack(0),  // PSX heuristic, breaks mrdrilrg (2 MB VRAM, 512 line hack buffers)
    .showGunCrosshairs(0),
    .enableNeGconRumble(0),
-   .fpscountOn(0),
+   .fpscountOn(DEBUG), // debug: frame time (ms, GP1(05) interval) top left, red while frames are missed
    .cdslowOn(0),
    .testSeek(0),
    .pauseOnCDSlow(0),
@@ -524,6 +526,7 @@ psx
    .LBAtext(gt_text),
    .drawAllLines(DEBUG && status[84]),
    .fieldLock(!DEBUG || !status[86]),
+   .romBusFast(!DEBUG || !status[89]),
    .PATCHSERIAL(0),
    .noTexture(0),
    .textureFilter(0),

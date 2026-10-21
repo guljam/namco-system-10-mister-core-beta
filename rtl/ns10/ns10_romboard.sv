@@ -91,6 +91,9 @@ reg         master_lock;
 reg  [15:0] wb[16];                  // write buffer (command E8)
 reg   [4:0] wb_count, wb_n;
 reg  [19:0] wb_start;
+reg  [19:0] fp_word;                 // word program: flash word (bank ignored), data
+reg  [15:0] fp_data;
+reg         fp_wb;                   // program comes from the write buffer
 
 // ======================================================================== MEM(N) state
 localparam NM_INIT = 3'd0, NM_READ = 3'd1, NM_PROG = 3'd2, NM_ERASE = 3'd3, NM_STATUS = 3'd4, NM_ID = 3'd5;
@@ -165,6 +168,8 @@ typedef enum logic [4:0] {
 	S_PROG_AND,
 	S_ERASE,         // NAND 0xD0 / flash D0: FF fill
 	S_WB_COMMIT,     // flash E8 ... D0: write buffer to the array
+	S_FPROG_RD,      // flash word program: read-modify-write
+	S_FPROG_RDW,
 	S_CACHE_WAIT,    // wait for a posted cache write
 	S_BOOT,          // boot copy
 	S_BOOT_RD,
@@ -190,6 +195,10 @@ reg  [25:0] op_byte;         // ROM byte address of the current operation
 reg  [12:0] op_cnt;
 reg   [2:0] lane;
 reg  [63:0] beatbuf;
+// last beat read through the cache: sequential MEM(M) window reads hit it without a cache round trip
+reg         lat_v;
+reg  [22:0] lat_beat;
+reg  [63:0] lat_data;
 reg   [9:0] pr_base;
 reg         prog_next;
 reg   [7:0] wlo;
@@ -242,6 +251,7 @@ always @(posedge clk) begin
 		ctrl         <= 0;
 		nand_address <= 0;
 		prog_next    <= 0;
+		lat_v        <= 0;
 		for (i = 0; i < 8; i = i + 1) begin
 			n_mode[i]   <= NM_INIT;
 			n_pm[i]     <= PM_A;
@@ -272,6 +282,7 @@ always @(posedge clk) begin
 			end
 
 			if (wr) begin
+				lat_v <= 0;             // any write may start a flash program / erase
 				if (a_crypt) begin
 					crypt_switch_we   <= 1;
 					crypt_switch_data <= wdata;
@@ -282,13 +293,13 @@ always @(posedge clk) begin
 					// writes ignore the bank (MAME namcos10_memm_state::nand_w)
 					case (fmode)
 						FM_WRITE: begin
-							rq_wr    <= 1;
-							rq_beat  <= {3'd0, woff[19:2]};
-							rq_wdata <= {4{wdata}};
-							rq_be    <= 8'h03 << {woff[1:0], 1'b0};
+							// programming only clears bits (MAME intelfsh: m_data &= data)
+							fp_word  <= woff;
+							fp_data  <= wdata;
+							fp_wb    <= 0;
 							fstatus  <= 8'h80;
 							fmode    <= FM_STATUS;
-							state    <= S_CACHE_WAIT;
+							state    <= S_FPROG_RD;
 						end
 						FM_CLEAR: if (wdata[7:0] == 8'hD0) begin
 							// 64 KB block; MAME reports 0x00 for 1 s, here the erase is done at once
@@ -461,6 +472,10 @@ always @(posedge clk) begin
 						if (!bank[4] && bank[3:2] != 2'd0) begin
 							raw   <= 16'h0000;           // beyond the 8 MB flash
 							state <= S_RAW_DONE;
+						end else if (lat_v && lat_beat == mm_byte[25:3]) begin
+							op_byte <= mm_byte;
+							raw     <= lat_data[{mm_byte[2:1], 4'b0000} +: 16];
+							state   <= S_RAW_DONE;
 						end else begin
 							op_byte <= mm_byte;
 							rq_rd   <= 1;
@@ -545,8 +560,11 @@ always @(posedge clk) begin
 
 		// ================================================================ MEM(M) raw word
 		S_MRD_WAIT: if (rq_valid) begin
-			raw   <= rq_data[{op_byte[2:1], 4'b0000} +: 16];
-			state <= S_RAW_DONE;
+			raw      <= rq_data[{op_byte[2:1], 4'b0000} +: 16];
+			lat_v    <= 1;
+			lat_beat <= rq_beat;
+			lat_data <= rq_data;
+			state    <= S_RAW_DONE;
 		end
 
 		// ================================================================ post processing
@@ -639,13 +657,29 @@ always @(posedge clk) begin
 			else op_cnt <= op_cnt - 1'd1;
 		end
 
-		S_WB_COMMIT: if (!rq_busy && !rq_wr) begin
+		S_WB_COMMIT: begin
+			fp_word <= wb_addr;
+			fp_data <= wb[op_cnt[3:0]];
+			fp_wb   <= 1;
+			state   <= S_FPROG_RD;
+		end
+
+		// ================================================================ flash word program: data &= wdata
+		S_FPROG_RD: if (!rq_busy && !rq_wr) begin
+			rq_rd   <= 1;
+			rq_beat <= {3'd0, fp_word[19:2]};
+			state   <= S_FPROG_RDW;
+		end
+
+		S_FPROG_RDW: if (rq_valid) begin
 			rq_wr    <= 1;
-			rq_beat  <= {3'd0, wb_addr[19:2]};
-			rq_wdata <= {4{wb[op_cnt[3:0]]}};
-			rq_be    <= 8'h03 << {wb_addr[1:0], 1'b0};
-			if (op_cnt[4:0] + 1'd1 == wb_count) state <= S_CACHE_WAIT;
-			else op_cnt <= op_cnt + 1'd1;
+			rq_wdata <= {4{rq_data[{fp_word[1:0], 4'd0} +: 16] & fp_data}};
+			rq_be    <= 8'h03 << {fp_word[1:0], 1'b0};
+			if (fp_wb && op_cnt[4:0] + 1'd1 != wb_count) begin
+				op_cnt <= op_cnt + 1'd1;
+				state  <= S_WB_COMMIT;
+			end else
+				state  <= S_CACHE_WAIT;
 		end
 
 		S_CACHE_WAIT: if (!rq_busy && !rq_wr) begin

@@ -10,9 +10,7 @@ USE altera_mf.altera_mf_components.all;
 entity spu_ram is
    port 
    (
-      clk1x                : in  std_logic;
       clk2x                : in  std_logic;
-      clk2xIndex           : in  std_logic;
       ce                   : in  std_logic;
       reset                : in  std_logic;
       
@@ -68,6 +66,7 @@ architecture arch of spu_ram is
    signal reverbram_we         : std_logic;
    signal reverbram_readdata   : std_logic_vector(15 downto 0);
       
+   signal ram_processed_hit    : std_logic := '0';
    signal ram_processed        : std_logic := '0';
       
    signal ram_Adr64            : unsigned(15 downto 0);  
@@ -121,7 +120,7 @@ architecture arch of spu_ram is
    signal sample64wordEna           : std_logic_vector(3 downto 0) := (others => '0');
    signal sample64addr              : std_logic_vector(15 downto 0) := (others => '0');
    signal sample64filled            : std_logic := '0';
-   signal sample64timeout           : integer range 0 to 40;
+   signal sample64timeout           : integer range 0 to 80;
       
    -- DDR3 access
    type tMemState is
@@ -149,13 +148,13 @@ begin
    generic map (addr_width => 11, data_width => 16)
    port map
    (
-      clock_a     => clk1x,
+      clock_a     => clk2x,
       address_a   => ram_Adr(11 downto 1),
       data_a      => ram_dataWrite,
       wren_a      => captureram_we,
       q_a         => captureram_readdata,
       
-      clock_b     => clk1x,
+      clock_b     => clk2x,
       address_b   => (10 downto 0 => '0'),
       data_b      => x"0000",
       wren_b      => '0',
@@ -171,13 +170,13 @@ begin
    generic map (addr_width => 16, data_width => 16)
    port map
    (
-      clock_a     => clk1x,
+      clock_a     => clk2x,
       address_a   => ram_Adr(16 downto 1),
       data_a      => ram_dataWrite,
       wren_a      => reverbram_we,
       q_a         => reverbram_readdata,
       
-      clock_b     => clk1x,
+      clock_b     => clk2x,
       address_b   => (15 downto 0 => '0'),
       data_b      => x"0000",
       wren_b      => '0',
@@ -221,6 +220,7 @@ begin
    sdram_Adr       <= ram_Adr;
    sdram_be        <= "0011";
    sdram_rnw       <= ram_rnw;
+   -- NS10: the SDRAM path (useSDRAM) expects clk1x requests and is not used with the clk2x SPU
    sdram_ena       <= '0'         when (ram_isCapture = '1' or ram_ReverbSpace = '1') else
                       ram_request when (useSDRAM = '1') else 
                       '0'; 
@@ -240,15 +240,23 @@ begin
    ram_Adr64    <= unsigned(ram_Adr(18 downto 3));
    ram_Adr64_m1 <= unsigned(ram_Adr(18 downto 3)) - 1;
    
-   process(clk1x)
+   -- NS10: whole SPU RAM interface in clk2x (SPU runs at clk2x)
+   process(clk2x)
    begin
-      if (rising_edge(clk1x)) then
+      if (rising_edge(clk2x)) then
             
          fifoOut_reset     <= '0';
          fetch_request     <= '0';
          
          ram_processed     <= '0';
          cache_invalidate  <= '0';
+         
+         -- cache hit: cache_addr_b is set together with the hit, the cache read (clk2x) needs one more clock
+         -- (before the clk2x SPU the request side ran on clk1x and the clk2x cache read fit in between)
+         ram_processed_hit <= '0';
+         if (ram_processed_hit = '1') then
+            ram_processed <= '1';
+         end if;
          
          cache_voice_start <= cache_voice_starts(ram_VoiceIndex);
             
@@ -285,7 +293,7 @@ begin
                         
                            if (ram_isTransfer = '1') then
                               if (cache_transfer_valid = '1' and ram_Adr64 >= cache_transfer_start and ram_Adr64 <= (cache_transfer_start + 7)) then
-                                 ram_processed        <= '1';
+                                 ram_processed_hit    <= '1';
                                  cache_addr_b         <= to_unsigned(24, 5) & resize(ram_Adr64 - cache_transfer_start, 3) & unsigned(ram_Adr(2 downto 1));
                               else
                                  state                <= WAITTRANSFER;
@@ -300,7 +308,7 @@ begin
                               
                            elsif (ram_isVoice = '1') then
                               if (cache_voice_valid(ram_VoiceIndex) = '1' and ram_Adr64 >= cache_voice_start and ram_Adr64 <= (cache_voice_start + 7)) then
-                                 ram_processed        <= '1';
+                                 ram_processed_hit    <= '1';
                                  cache_addr_b         <= to_unsigned(ram_VoiceIndex, 5) & resize(ram_Adr64 - cache_voice_start, 3) & unsigned(ram_Adr(2 downto 1));
                               else
                                  state                <= CHECK_CACHE;
@@ -323,8 +331,8 @@ begin
                      
                   when CHECK_CACHE =>
                      if (unsigned(cache_voice_hit) > 0) then
-                        state         <= IDLE;
-                        ram_processed <= '1';
+                        state             <= IDLE;
+                        ram_processed_hit <= '1';
                         for i in 0 to 23 loop
                            if (cache_voice_hit(i) = '1') then
                               cache_addr_b  <= to_unsigned(i, 5) & resize(ram_Adr64 - cache_voice_starts(i), 3) & unsigned(ram_Adr(2 downto 1));
@@ -342,9 +350,12 @@ begin
                      end if;
                      
                      
+                  -- NS10: the write data is already taken by the sample64 process, only wait for FIFO space.
+                  -- Upstream had no exit here (SPU hung forever once the DDR3 write FIFO was near full).
                   when WAITWRITE =>
-                     if (fifoOut_NearFull = '1') then
-                        ram_processed <= '0';
+                     if (fifoOut_NearFull = '0') then
+                        state         <= IDLE;
+                        ram_processed <= '1';
                      end if;
                
                   when WAITTRANSFER =>
@@ -384,11 +395,11 @@ begin
             
             sample64filled <= '0';
             
-         elsif (clk2xIndex = '1') then
+         else
          
             if (useSDRAM = '0' and ram_request = '1' and ram_rnw = '0' and ram_isCapture = '0' and ram_ReverbSpace = '0') then
             
-               sample64timeout <= 40;
+               sample64timeout <= 80;
             
                if (sample64filled = '0' or unsigned(ram_Adr(18 downto 3)) /= unsigned(sample64Addr)) then
                

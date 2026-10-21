@@ -78,9 +78,10 @@ def probe(pid, clear=False):
 
 
 def spu(clear=False):
-    """SPU timing probe (rtl/spu.vhd, In-System Sources and Probes instance "SPUT")."""
+    """SPU timing probe (rtl/spu.vhd, In-System Sources and Probes instance "SPUT").
+    Cycles are clk2x (SPU runs at 67.7 MHz, budget 1024 per sample; builds before spu-fix: clk1x, budget 512)."""
     v = probe("SPUT", clear)
-    print(f"overruns {v >> 48}, max cycles/sample {(v >> 36) & 0xFFF}, max RAM wait per sample: "
+    print(f"overruns {v >> 48}, max clk2x cycles/sample {(v >> 36) & 0xFFF} (budget 1024), max RAM wait per sample: "
           f"voice {(v >> 24) & 0xFFF}, write {(v >> 12) & 0xFFF}, other ~{((v >> 4) & 0xFF) * 16}, "
           f"max stashed {v & 0xF}" + (" -- cleared" if clear else ""))
 

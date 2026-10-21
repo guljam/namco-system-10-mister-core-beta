@@ -5,7 +5,7 @@ use IEEE.numeric_std.all;
 entity spu_gauss is
    port 
    (
-      clk1x                : in  std_logic;
+      clk                  : in  std_logic;
       
       interpolIndex        : in  unsigned(7 downto 0);
       
@@ -94,10 +94,10 @@ architecture arch of spu_gauss is
   
 begin 
 
-   process(clk1x) 
+   process(clk) 
       variable readaddr : integer range 0 to 511;
    begin
-      if (rising_edge(clk1x)) then
+      if (rising_edge(clk)) then
         
          readindex <= readindex + 1;
          
