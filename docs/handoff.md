@@ -97,6 +97,7 @@
 
 ## Releases
 - 2026-10-19: `releases/_Arcade/cores/Arcade-SYSTEM10_20261019.rbf` (revision NAMCOS10_release).
+- 2026-10-21: `releases/_Arcade/cores/Arcade-SYSTEM10_20261021.rbf` (revision NAMCOS10_release, Star Trigon boot hotfix). SEED 1 gave a core hold violation (-0.013 ns, SPU voice record MLAB write address) -> `NAMCOS10_release.qsf` SEED 2: core clocks clean, HDMI `ascal` setup -0.128 ns (slow 85C only). HW: Star Trigon / Gamshara / Driller G / Driller 2 boot and display OK.
 - Debug revision build of b5efdaa (not deployed): compiles, but placement-dependent violations: HDMI `ascal` setup -0.254 ns and hold -0.251 ns from the HPS f2sdram FFs into GPU line RAM / texture cache RAM inputs (the release revision of the same source passes). On the next debug build check timing first; if it repeats, change `SEED` in NAMCOS10.qsf.
 
 ## Notes
