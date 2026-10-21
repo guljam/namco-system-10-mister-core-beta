@@ -4,6 +4,7 @@ compare it with a MAME tap_exp1.lua trace.
     python tools/ns10trace.py read <out.txt> [skip]   # builds up to 8450096 only (TRC RAM replaced by tools/gputrace.py)
     python tools/ns10trace.py cmp <hw.txt> <mame.log> [first]
     python tools/ns10trace.py spu [clear]             # SPU per-sample timing probe "SPUT"
+    python tools/ns10trace.py spu2 [clear]            # SPU transfer words / dropped samples / stash probe "SPU2"
 
 The core must already be running on the MiSTer (loaded from the SD card); the
 USB-Blaster talks to the FPGA's JTAG hub.
@@ -63,20 +64,33 @@ def read(out, skip=None):
     print(f"count {count}, {len(words)} words -> {out}")
 
 
-def spu(clear=False):
-    """SPU timing probe (rtl/spu.vhd, In-System Sources and Probes instance "SPUT")."""
+def probe(pid, clear=False):
+    """Read (and optionally clear) an ns10_probe In-System Sources and Probes instance by its ID."""
     o = tcl(f'set hw "{HW}"\nset dev "{DEV}"\n'
             'foreach i [get_insystem_source_probe_instance_info -hardware_name $hw -device_name $dev] {\n'
-            ' if {[lindex $i 3] == "SPUT"} { set pi [lindex $i 0] } }\n'
+            f' if {{[lindex $i 3] == "{pid}"}} {{ set pi [lindex $i 0] }} }}\n'
             'start_insystem_source_probe -hardware_name $hw -device_name $dev\n'
-            'puts "SPUT [read_probe_data -instance_index $pi -value_in_hex]"\n' +
+            f'puts "{pid} [read_probe_data -instance_index $pi -value_in_hex]"\n' +
             ('write_source_data -instance_index $pi -value 1\nafter 10\nwrite_source_data -instance_index $pi -value 0\n'
              if clear else '') +
             'end_insystem_source_probe\n')
-    v = int(o.split("SPUT ")[1].split()[0], 16)
+    return int(o.split(f"{pid} ")[1].split()[0], 16)
+
+
+def spu(clear=False):
+    """SPU timing probe (rtl/spu.vhd, In-System Sources and Probes instance "SPUT")."""
+    v = probe("SPUT", clear)
     print(f"overruns {v >> 48}, max cycles/sample {(v >> 36) & 0xFFF}, max RAM wait per sample: "
           f"voice {(v >> 24) & 0xFFF}, write {(v >> 12) & 0xFFF}, other ~{((v >> 4) & 0xFF) * 16}, "
           f"max stashed {v & 0xF}" + (" -- cleared" if clear else ""))
+
+
+def spu2(clear=False):
+    """SPU transfer probe "SPU2": transfer words and dropped samples since clear, current stash / FIFO state."""
+    v = probe("SPU2", clear)
+    print(f"transfer words {v >> 32}, dropped samples {(v >> 12) & 0xFFFFF}, stash now {(v >> 8) & 0xF}, "
+          f"FIFO in empty {(v >> 3) & 1}, FIFO out empty {(v >> 2) & 1}, transfer mode {v & 3}" +
+          (" -- cleared" if clear else ""))
 
 
 def mame_bus(log):
@@ -130,6 +144,8 @@ def list_from(gen, first, n):
 if __name__ == "__main__":
     if sys.argv[1] == "spu":
         spu(len(sys.argv) > 2)
+    elif sys.argv[1] == "spu2":
+        spu2(len(sys.argv) > 2)
     elif sys.argv[1] == "read":
         read(sys.argv[2], int(sys.argv[3], 0) if len(sys.argv) > 3 else None)
     else:

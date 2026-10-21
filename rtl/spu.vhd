@@ -101,6 +101,9 @@ architecture arch of spu is
    signal dbg_maxstash   : unsigned(3 downto 0) := (others => '0');
    signal dbg_pending    : std_logic := '0';
    signal dbg_clear      : std_logic_vector(0 downto 0);
+   signal dbg_xfers      : unsigned(31 downto 0) := (others => '0');   -- probe "SPU2": data transfer words
+   signal dbg_drops      : unsigned(19 downto 0) := (others => '0');   -- dropped samples (sound_timeout)
+   signal dbg_clear2     : std_logic_vector(0 downto 0);
 
    function clamp16(value_in: signed) return signed is
       variable result: signed(15 downto 0);
@@ -1896,15 +1899,18 @@ begin
                   
                   ram_Adr         <= std_logic_vector(ramTransferAddr);
                   
-                  -- NS10: 512 clk per sample (66 kHz) instead of 768; no data transfer while samples are stashed,
-                  -- so a sample upload cannot push the SPU behind until it drops samples (error EA)
-                  if (CNT(5 downto 4) = "11" and FifoOut_NearFull = '0' and stashedSamples = 0) then
+                  -- NS10: 512 clk per sample (66 kHz) instead of 768; while samples are stashed only one data
+                  -- transfer per sample (last voice slot), so a sample upload cannot push the SPU behind until it
+                  -- drops samples (error EA). The transfer must not stop completely: when the SPU is behind even
+                  -- without transfers (Star Trigon boot) the stash never empties and the game hangs on its upload.
+                  -- At a full stash samples are dropped anyway -> full transfer rate.
+                  if (CNT(5 downto 4) = "11" and FifoOut_NearFull = '0' and (stashedSamples = 0 or stashedSamples = 15 or index = 23)) then
                      state           <= RAM_READ;
                      ram_request     <= '1';
                      ram_isTransfer  <= '1';
                      ram_rnw         <= '1';
                      ramTransferAddr <= ramTransferAddr + 2;
-                  elsif (FifoIn_Empty = '0' and stashedSamples = 0) then
+                  elsif (FifoIn_Empty = '0' and (stashedSamples = 0 or stashedSamples = 15 or index = 23)) then
                      state           <= RAM_WRITE;
                      ram_request     <= '1';
                      ram_isTransfer  <= '1';
@@ -2521,6 +2527,14 @@ begin
       source => dbg_clear
    );
 
+   idbgprobe2 : ns10_probe
+   generic map (ID => "SPU2")
+   port map
+   (
+      probe  => std_logic_vector(dbg_xfers) & std_logic_vector(dbg_drops) & std_logic_vector(to_unsigned(stashedSamples, 4)) & "0000" & FifoIn_Empty & FifoOut_Empty & CNT(5 downto 4),
+      source => dbg_clear2
+   );
+
    process (clk1x)
    begin
       if rising_edge(clk1x) then
@@ -2544,6 +2558,12 @@ begin
             end if;
             if (sampleticks = 0 and state /= IDLE) then dbg_overruns <= dbg_overruns + 1; end if;
             if (to_unsigned(stashedSamples, 4) > dbg_maxstash) then dbg_maxstash <= to_unsigned(stashedSamples, 4); end if;
+            if (sampleticks = 0 and state /= IDLE and stashedSamples = 15 and dbg_drops /= x"FFFFF") then dbg_drops <= dbg_drops + 1; end if;
+         end if;
+         if (ram_request = '1' and ram_isTransfer = '1') then dbg_xfers <= dbg_xfers + 1; end if;
+         if (dbg_clear2(0) = '1') then
+            dbg_xfers <= (others => '0');
+            dbg_drops <= (others => '0');
          end if;
          if (dbg_clear(0) = '1') then
             dbg_maxcyc   <= (others => '0');
