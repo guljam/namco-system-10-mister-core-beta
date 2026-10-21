@@ -34,6 +34,7 @@ Support for additional games is uncertain. Future updates will focus on bug fixe
 - Tested only on the QMTECH MiSTer board. It is unknown whether it works on the DE10-Nano.
 - This core was not made by analyzing real hardware.
 - It may not be cycle accurate.
+- There is a very brief stutter in the Mr. Driller 2 demo section (likely due to performance issues).
 
 ## Issues found
 
@@ -46,7 +47,6 @@ Support for additional games is uncertain. Future updates will focus on bug fixe
 - Created with Claude Opus 5.5.
 - Based on the MiSTer PSX core and the MAME `namcos10.cpp` driver code.
 - I am not a professional developer. I am approaching this AI-generated core very conservatively and carefully, out of consideration for existing professional core developers. If controversy arises over AI-generated cores, I will delete this repository.
-- There are very slight stutters in the Driller 2 demo.
 
 ## License
 
