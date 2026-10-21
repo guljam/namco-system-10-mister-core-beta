@@ -34,12 +34,12 @@ Support for additional games is uncertain. Future updates will focus on bug fixe
 - Tested only on the QMTECH MiSTer board. It is unknown whether it works on the DE10-Nano.
 - This core was not made by analyzing real hardware.
 - It may not be cycle accurate.
-- There is a very brief stutter in the Mr. Driller 2 demo section (likely due to performance issues).
 
 ## Issues found
 
-- Unable to read score data from NVRAM in Mr. Driller 2
 - Graphics freeze when resetting or running cores under specific conditions
+- There is a very brief stutter in the Mr. Driller 2 demo section (likely due to performance issues).
+- ~~Unable to read score data from NVRAM in Mr. Driller 2~~ (I misunderstood the "today" ranking; the NVRAM operation is fine.)
 - ~~The "Star Trigon" game is not working; it functioned correctly during testing, but the issue arose because it was released without proper verification following the final modifications.~~
 
 ## Additional notes
