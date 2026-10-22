@@ -1398,6 +1398,37 @@ scanlines #(0) VGA_scanlines
 	.ce_out(vga_ce_sl)
 );
 
+`ifdef MISTER_CRT_ADJUST
+// NS10 core: the analog path gets the core's CRT adjusted picture (CRT_*), the HDMI scaler
+// above keeps VGA_* (vga_*_sl), so CRT geometry settings never reach HDMI.
+wire        crt_vs_fix, crt_hs_fix;
+sync_fix crt_sync_v(clk_vid, crt_vs_emu, crt_vs_fix);
+sync_fix crt_sync_h(clk_vid, crt_hs_emu, crt_hs_fix);
+
+wire [23:0] crt_data_sl;
+wire        crt_de_sl, crt_ce_sl, crt_vs_sl, crt_hs_sl;
+scanlines #(0) CRT_scanlines
+(
+	.clk(clk_vid),
+
+	.scanlines(scanlines),
+	.din(de_emu ? {crt_r_out, crt_g_out, crt_b_out} : 24'd0),
+	.hs_in(crt_hs_fix),
+	.vs_in(crt_vs_fix),
+	.de_in(de_emu),
+	.ce_in(ce_pix),
+
+	.dout(crt_data_sl),
+	.hs_out(crt_hs_sl),
+	.vs_out(crt_vs_sl),
+	.de_out(crt_de_sl),
+	.ce_out(crt_ce_sl)
+);
+`else
+wire [23:0] crt_data_sl = vga_data_sl;
+wire        crt_de_sl = vga_de_sl, crt_vs_sl = vga_vs_sl, crt_hs_sl = vga_hs_sl;
+`endif
+
 wire [23:0] vga_data_osd;
 wire        vga_vs_osd, vga_hs_osd, vga_de_osd;
 osd vga_osd
@@ -1410,10 +1441,10 @@ osd vga_osd
 	.osd_status(osd_status),
 
 	.clk_video(clk_vid),
-	.din(vga_data_sl),
-	.hs_in(vga_hs_sl),
-	.vs_in(vga_vs_sl),
-	.de_in(vga_de_sl),
+	.din(crt_data_sl),
+	.hs_in(crt_hs_sl),
+	.vs_in(crt_vs_sl),
+	.de_in(crt_de_sl),
 
 	.dout(vga_data_osd),
 	.hs_out(vga_hs_osd),
@@ -1684,6 +1715,10 @@ wire  [1:0] audio_mix;
 wire  [1:0] scanlines;
 wire  [7:0] r_out, g_out, b_out, hr_out, hg_out, hb_out;
 wire        vs_fix, hs_fix, de_emu, vs_emu, hs_emu, f1;
+`ifdef MISTER_CRT_ADJUST
+wire  [7:0] crt_r_out, crt_g_out, crt_b_out;
+wire        crt_hs_emu, crt_vs_emu;
+`endif
 wire        hvs_fix, hhs_fix, hde_emu;
 wire        clk_vid, ce_pix, clk_ihdmi, ce_hpix;
 wire        vga_force_scaler;
@@ -1770,6 +1805,14 @@ emu emu
 	.VGA_DE(de_emu),
 	.VGA_F1(f1),
 	.VGA_SCALER(vga_force_scaler),
+
+`ifdef MISTER_CRT_ADJUST
+	.CRT_R(crt_r_out),
+	.CRT_G(crt_g_out),
+	.CRT_B(crt_b_out),
+	.CRT_HS(crt_hs_emu),
+	.CRT_VS(crt_vs_emu),
+`endif
 
 `ifndef MISTER_DUAL_SDRAM
 	.VGA_DISABLE(VGA_DISABLE),

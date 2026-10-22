@@ -31,6 +31,16 @@ output [1:0]  VGA_SL,
 output        VGA_SCALER, // Force VGA scaler
 output        VGA_DISABLE, // analog out is off
 
+`ifdef MISTER_CRT_ADJUST
+// NS10 core: analog only picture (CRT geometry adjust). The analog output (and direct video)
+// takes these instead of VGA_R/G/B/HS/VS; the HDMI scaler keeps VGA_*. Same CE_PIXEL / VGA_DE.
+output  [7:0] CRT_R,
+output  [7:0] CRT_G,
+output  [7:0] CRT_B,
+output        CRT_HS,
+output        CRT_VS,
+`endif
+
 input  [11:0] HDMI_WIDTH,
 input  [11:0] HDMI_HEIGHT,
 output        HDMI_FREEZE,

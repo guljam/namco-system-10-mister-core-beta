@@ -14,6 +14,7 @@ module ns10_romcache
 	input             clk1x,
 	input             clk2x,
 	input             reset,
+	input             inval,         // drop both lines (DDR3 was written behind the cache: fast ROM load)
 
 	input      [28:0] ddr_base,      // beat address of ROM byte 0
 
@@ -171,6 +172,7 @@ always @(posedge clk1x) begin
 
 			default: state <= S_IDLE;
 		endcase
+		if (inval) tvalid <= 2'b00;
 	end
 end
 

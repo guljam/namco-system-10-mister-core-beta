@@ -118,7 +118,7 @@ wire reset_or = RESET | buttons[1] | status[0] | rom_download | cfg_download | n
 // 01234567890123456789012345678901 23456789012345678901234567890123 45678901234567890123456789012345
 // 0123456789ABCDEFGHIJKLMNOPQRSTUV 0123456789ABCDEFGHIJKLMNOPQRSTUV
 // X      XX                        XXXX     X                      X                XXXXXX  X
-// 96..104: Test switch, DIP SW1
+// 96..104: Test switch, DIP SW1; 105..120: CRT Adjust (on, H-Size, H-Position, V-Position)
 // 81..86, 89: debug build only (NS10_DEBUG, revision NAMCOS10); the release revision NAMCOS10_release
 //         runs them at their defaults (Turbo High, Cache Full, Interlace Drawing PSX, Field Lock On, ROM Bus Wait MAME)
 
@@ -149,6 +149,12 @@ parameter CONF_STR = {
 	"P2O[102],SW1:6,Off,On;",
 	"P2O[103],SW1:7,Off,On;",
 	"P2O[104],SW1:8,Off,On;",
+	"P3,CRT Adjust (analog);",
+	"P3-;",
+	"P3O[105],CRT Adjust,Off,On;",
+	"H1P3O[110:106],CRT H-Size,0,+1,+2,+3,+4,+5,+6,+7,+8,+9,+10,-12,-11,-10,-9,-8,-7,-6,-5,-4,-3,-2,-1;",
+	"H1P3O[115:111],CRT H-Position,0,+1,+2,+3,+4,+5,+6,+7,+8,+9,+10,+11,+12,+13,+14,+15,-16,-15,-14,-13,-12,-11,-10,-9,-8,-7,-6,-5,-4,-3,-2,-1;",
+	"H1P3O[120:116],CRT V-Position,0,+1,+2,+3,+4,+5,+6,+7,+8,+9,+10,+11,+12,+13,+14,+15,-16,-15,-14,-13,-12,-11,-10,-9,-8,-7,-6,-5,-4,-3,-2,-1;",
 	"-;",
 `ifdef NS10_DEBUG
 	"O[82:81],CPU Turbo,High,Medium,Low,Off;",
@@ -200,7 +206,7 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1)) hps_io
 	.status(status),
 	.status_in(128'd0),
 	.status_set(1'b0),
-	.status_menumask(16'd0),
+	.status_menumask({14'd0, ~status[105], 1'b0}),   // H1: CRT Adjust values hidden while CRT Adjust is Off
 	.info_req(1'b0),
 
 	.ioctl_addr(ioctl_addr),
@@ -232,7 +238,11 @@ hps_ext hps_ext
 //////////////////////////  ROM / CONFIG DOWNLOAD  //////////////////////
 
 // MRA order: config (1), nvram (2, only if a .nvm exists), ROM (0). The ROM
-// download leaves the nvram region alone when a .nvm was loaded.
+// comes with the DDR3 fast load (MRA address 0x35000000: Main_MiSTer copies it
+// into DDR3 itself, the core only sees an empty index 0 download) or, with an
+// older Main_MiSTer, as a normal ioctl stream. The nvram goes to a staging area
+// above the ROM image; after the ROM, ns10_nvload copies it into the settings
+// region (or the ROM's own region data, without a .nvm) before the boot copy.
 reg rom_download, cfg_download, nv_download;
 reg nv_loaded = 0;
 always @(posedge clk_1x) begin
@@ -244,11 +254,13 @@ always @(posedge clk_1x) begin
 end
 
 // ROM image / nvram into DDR3 through the ROM cache, one 64 bit beat per 4 words
+// nvram staging: ROM beat 0x7F0000 = DDR3 0x38F80000 (ROM images end below 0x3200000 beats*8)
+localparam [22:0] NV_STAGE = 23'h7F0000;
+
 reg  [63:0] dl_data;
 reg  [22:0] dl_beat;
 reg         dl_wr = 0;
 wire [22:0] nv_base;
-wire        nv_hit_dl;
 
 always @(posedge clk_1x) begin
 	dl_wr <= 0;
@@ -256,8 +268,8 @@ always @(posedge clk_1x) begin
 		if (ioctl_wr) begin
 			dl_data[{ioctl_addr[2:1], 4'd0} +: 16] <= ioctl_dout;
 			if (ioctl_addr[2:1] == 2'd3) begin
-				dl_wr      <= ~(rom_download & nv_loaded & nv_hit_dl);
-				dl_beat    <= nv_download ? nv_base + ioctl_addr[25:3] : ioctl_addr[25:3];
+				dl_wr      <= 1;
+				dl_beat    <= nv_download ? NV_STAGE + ioctl_addr[25:3] : ioctl_addr[25:3];
 				ioctl_wait <= 1;
 			end
 		end
@@ -267,18 +279,24 @@ always @(posedge clk_1x) begin
 	end
 end
 
-// boot: BIOS image build after ROM + config are loaded
-reg rom_loaded = 0, cfg_loaded = 0, need_boot = 0, boot_start = 0;
+// boot: settings region rebuild (ns10_nvload), then the BIOS image build, after ROM + config are loaded
+reg rom_loaded = 0, cfg_loaded = 0, need_boot = 0, boot_start = 0, need_nvl = 0, nvl_start = 0;
 reg rom_download_1, cfg_download_1;
-wire boot_busy;
+wire boot_busy, nvl_busy;
+wire rom_end = rom_download_1 & ~rom_download;
 
 always @(posedge clk_1x) begin
 	rom_download_1 <= rom_download;
 	cfg_download_1 <= cfg_download;
 	boot_start     <= 0;
-	if (rom_download_1 & ~rom_download) begin rom_loaded <= 1; need_boot <= 1; end
+	nvl_start      <= 0;
+	if (rom_end) begin rom_loaded <= 1; need_boot <= 1; need_nvl <= 1; end
 	if (cfg_download_1 & ~cfg_download) begin cfg_loaded <= 1; need_boot <= 1; end
-	if (need_boot & rom_loaded & cfg_loaded & ~reset & ~boot_busy) begin
+	if (need_nvl & cfg_loaded & ~reset & ~nvl_start & ~nvl_busy) begin
+		nvl_start <= 1;
+		need_nvl  <= 0;
+	end
+	if (need_boot & rom_loaded & cfg_loaded & ~reset & ~boot_busy & ~need_nvl & ~nvl_start & ~nvl_busy) begin
 		boot_start <= 1;
 		need_boot  <= 0;
 	end
@@ -303,7 +321,34 @@ end
 
 wire [1:0] turbo = DEBUG ? ~status[82:81] : 2'b11;  // status 0 High, 1 Medium, 2 Low, 3 Off
 
-wire cpu_reset = reset | need_boot | boot_start | boot_busy | ~(rom_loaded & cfg_loaded);
+wire cpu_reset = reset | need_boot | boot_start | boot_busy | need_nvl | nvl_start | nvl_busy | ~(rom_loaded & cfg_loaded);
+
+// debug: load timing probe "LOAD" (tools/ns10trace.py load): index 0 download time and ioctl words
+// (0 words = DDR3 fast load), settings rebuild and ROM end -> CPU start times, .nvm loaded
+reg  [35:0] ld_rom_t = 0;        // clk_1x while the index 0 download runs
+reg  [23:0] ld_rom_w = 0;        // ioctl_wr during it
+reg  [25:0] ld_nvl_t = 0;        // clk_1x while ns10_nvload runs
+reg  [30:0] ld_run_t = 0;        // clk_1x from the ROM download end to the CPU leaving reset
+reg         ld_run = 0;
+always @(posedge clk_1x) begin
+	if (cfg_download) begin ld_rom_t <= 0; ld_rom_w <= 0; ld_nvl_t <= 0; ld_run_t <= 0; end
+	if (rom_download) begin
+		if (~&ld_rom_t) ld_rom_t <= ld_rom_t + 1'd1;
+		if (ioctl_wr && ~&ld_rom_w) ld_rom_w <= ld_rom_w + 1'd1;
+	end
+	if (nvl_busy && ~&ld_nvl_t) ld_nvl_t <= ld_nvl_t + 1'd1;
+	if (rom_end) ld_run <= 1;
+	if (ld_run) begin
+		if (~cpu_reset) ld_run <= 0;
+		else if (~&ld_run_t) ld_run_t <= ld_run_t + 1'd1;
+	end
+end
+
+ns10_probe #(.ID("LOAD")) ld_probe
+(
+	.probe({ld_rom_t[35:16], ld_rom_w[23:12], ld_nvl_t[25:14], ld_run_t[30:15], nv_loaded, ld_run, rom_loaded, cfg_loaded}),
+	.source()
+);
 
 ////////////////////////////  NS10 BOARD  ///////////////////////////////
 
@@ -399,20 +444,33 @@ ns10_romboard ns10_romboard
 	.bw_req(bw_req), .bw_addr(bw_addr), .bw_data(bw_data), .bw_done(sdramCh3_done)
 );
 
+wire        nvl_rd, nvl_wr;
+wire [22:0] nvl_beat;
+wire [63:0] nvl_wdata;
+
+ns10_nvload ns10_nvload
+(
+	.clk(clk_1x), .start(nvl_start),
+	.src(nv_loaded ? NV_STAGE : nv_base), .dst(nv_base), .count((board_type == 2'd0) ? 12'h800 : 12'h840),
+	.busy(nvl_busy),
+	.rq_rd(nvl_rd), .rq_wr(nvl_wr), .rq_beat(nvl_beat), .rq_wdata(nvl_wdata),
+	.rq_busy(rq_busy), .rq_valid(rq_valid), .rq_data(rq_data)
+);
+
 wire        dl_mode  = rom_download | nv_download;
-wire        rq_wr    = dl_mode ? dl_wr : rb_wr;
-wire [22:0] rq_beat  = dl_mode ? dl_beat : rb_beat;
-wire [63:0] rq_wdata = dl_mode ? dl_data : rb_wdata;
-wire  [7:0] rq_be    = dl_mode ? 8'hFF : rb_be;
+wire        nvl_mode = nvl_start | nvl_busy;
+wire        rq_wr    = dl_mode ? dl_wr : nvl_mode ? nvl_wr : rb_wr;
+wire [22:0] rq_beat  = dl_mode ? dl_beat : nvl_mode ? nvl_beat : rb_beat;
+wire [63:0] rq_wdata = dl_mode ? dl_data : nvl_mode ? nvl_wdata : rb_wdata;
+wire  [7:0] rq_be    = (dl_mode | nvl_mode) ? 8'hFF : rb_be;
 
 // settings NVRAM: BRAM copy of the region for the HPS save
 wire        nv_hit;
-assign      nv_hit_dl = (ioctl_addr[25:3] >= nv_base) && (ioctl_addr[25:3] - nv_base < ((board_type == 2'd0) ? 23'h800 : 23'h840));
 
 ns10_nvram ns10_nvram
 (
 	.clk(clk_1x), .board_type(board_type),
-	.wr(rq_wr), .beat(rq_beat), .wdata(rq_wdata), .be(rq_be), .game(~dl_mode),
+	.wr(rq_wr), .beat(rq_beat), .wdata(rq_wdata), .be(rq_be), .game(~(dl_mode | nvl_mode)),
 	.base(nv_base), .hit(nv_hit),
 	.up_addr(ioctl_addr[14:0]), .up_data(nv_up_data),
 	.save_req(nv_save_req)
@@ -425,8 +483,8 @@ wire  [7:0] cl_be;
 
 ns10_romcache ns10_romcache
 (
-	.clk1x(clk_1x), .clk2x(clk_2x), .reset(1'b0), .ddr_base(29'h06A00000),
-	.rq_rd(dl_mode ? 1'b0 : rb_rd),
+	.clk1x(clk_1x), .clk2x(clk_2x), .reset(1'b0), .inval(rom_end), .ddr_base(29'h06A00000),
+	.rq_rd(dl_mode ? 1'b0 : nvl_mode ? nvl_rd : rb_rd),
 	.rq_wr(rq_wr),
 	.rq_beat(rq_beat),
 	.rq_wdata(rq_wdata),
@@ -654,23 +712,23 @@ psx
    .videoout_on     (1),
    .isPal           (0),
    .pal60           (0),
-   .hsync           (hs),
-   .vsync           (vs),
-   .hblank          (hbl),
-   .vblank          (vbl),
+   .hsync           (psx_hs),
+   .vsync           (psx_vs),
+   .hblank          (psx_hbl),
+   .vblank          (psx_vbl),
    .DisplayWidth    (DisplayWidth),
    .DisplayHeight   (DisplayHeight),
    .DisplayOffsetX  (DisplayOffsetX),
    .DisplayOffsetY  (DisplayOffsetY),
-   .video_ce        (ce_pix),
-   .video_interlace (video_interlace),
-   .video_r         (r),
-   .video_g         (g),
-   .video_b         (b),
+   .video_ce        (psx_ce_pix),
+   .video_interlace (psx_interlace),
+   .video_r         (psx_r),
+   .video_g         (psx_g),
+   .video_b         (psx_b),
    .video_isPal     (video_isPal),
    .video_fbmode    (video_fbmode),
    .video_fb24      (video_fb24),
-   .video_hResMode  (video_hResMode),
+   .video_hResMode  (psx_hResMode),
    .video_frameindex(frameindex),
    //Keys (no PSX pads on NS10)
    .DSAltSwitchMode(0),
@@ -881,12 +939,48 @@ assign DDRAM_CLK = clk_2x;
 
 assign CLK_VIDEO = clk_vid;
 
-wire hs, vs, hbl, vbl, video_interlace, video_isPal, video_fbmode, video_fb24;
+wire video_isPal, video_fbmode, video_fb24;
 
-wire [2:0] video_hResMode;
+// PSX GPU video outputs (the loading raster below muxes in front of them)
+wire       psx_hs, psx_vs, psx_hbl, psx_vbl, psx_ce_pix, psx_interlace;
+wire [7:0] psx_r, psx_g, psx_b;
+wire [2:0] psx_hResMode;
 
-wire ce_pix;
-wire [7:0] r,g,b;
+// Loading raster: the GPU is held in reset (cpu_reset) during the ROM download, the settings
+// region rebuild and the BIOS boot copy and produces no sync then. A free-running black 240p
+// NTSC raster with the GPU's own timing (3413 CLK_VIDEO per line, 263 lines, 320 wide = 8 clocks
+// per pixel) keeps CRTs locked, and the MiSTer OSD visible on the analog output.
+// (Idea and numbers from Tenkomori_Shooting_MiSTer.)
+reg  [1:0] ld_sync = 2'b11;
+reg [11:0] ld_h = 0;
+reg  [8:0] ld_v = 0;
+reg  [2:0] ld_div = 0;
+reg        ld_ce = 0, ld_hs = 0, ld_vs = 0, ld_hbl = 1, ld_vbl = 1;
+always @(posedge clk_vid) begin
+	ld_sync <= {ld_sync[0], cpu_reset};
+	ld_div  <= (ld_h == 12'd3412) ? 3'd0 : ld_div + 1'd1;
+	ld_ce   <= (ld_div == 3'd0);
+	if (ld_h == 12'd3412) begin
+		ld_h <= 12'd0;
+		ld_v <= (ld_v == 9'd262) ? 9'd0 : ld_v + 1'd1;
+	end else ld_h <= ld_h + 1'd1;
+	ld_hs  <= (ld_h < 12'd252);
+	ld_hbl <= (ld_h < 12'd504) || (ld_h >= 12'd3328);
+	ld_vbl <= (ld_v >= 9'd240);
+	ld_vs  <= (ld_v >= 9'd244) && (ld_v < 9'd247);
+end
+wire ld_active = ld_sync[1];
+
+wire       hs              = ld_active ? ld_hs   : psx_hs;
+wire       vs              = ld_active ? ld_vs   : psx_vs;
+wire       hbl             = ld_active ? ld_hbl  : psx_hbl;
+wire       vbl             = ld_active ? ld_vbl  : psx_vbl;
+wire       ce_pix          = ld_active ? ld_ce   : psx_ce_pix;
+wire       video_interlace = ld_active ? 1'b0    : psx_interlace;
+wire [7:0] r               = ld_active ? 8'd0    : psx_r;
+wire [7:0] g               = ld_active ? 8'd0    : psx_g;
+wire [7:0] b               = ld_active ? 8'd0    : psx_b;
+wire [2:0] video_hResMode  = ld_active ? 3'b011  : psx_hResMode;   // 320 wide
 
 typedef struct {
 	logic [7:0] red;
@@ -1036,6 +1130,45 @@ gamma_corr gamma(
 	.HBlank_out(video_gamma.hb),
 	.VBlank_out(video_gamma.vb),
 	.RGB_out({video_gamma.red,video_gamma.green,video_gamma.blue})
+);
+
+// CRT Adjust (OSD page "CRT Adjust", default Off = exact passthrough) for the native 15 kHz analog
+// output only: the picture goes out on CRT_* (sys/emu_ports.vh, MISTER_CRT_ADJUST), which sys_top
+// sends to the analog path, while the HDMI scaler keeps VGA_* (the native picture).
+// H-Size resamples each line from a line buffer (rtl/crt_hsize.sv, one line delay while in use),
+// H-Position / V-Position delay the syncs against the pixel stream (rtl/crt_sync.sv).
+wire              crt_on     = status[105];
+wire [4:0]        crt_hs_idx = status[110:106];
+wire signed [4:0] crt_hsize  = (crt_hs_idx <= 5'd10) ? crt_hs_idx : (crt_hs_idx - 5'd23);   // 0..+10, -12..-1
+wire              crt_hs_on;
+
+gv_crt_hsize crt_hsize_i
+(
+	.clk(CLK_VIDEO),
+	.ce_pix(CE_PIXEL),
+	.enable(crt_on),
+	.hsize(crt_hsize),
+	.hb(video_gamma.hb),
+	.r_in(video_gamma.red),
+	.g_in(video_gamma.green),
+	.b_in(video_gamma.blue),
+	.r_out(CRT_R),
+	.g_out(CRT_G),
+	.b_out(CRT_B),
+	.active(crt_hs_on)
+);
+
+crt_sync crt_sync_i
+(
+	.clk(CLK_VIDEO),
+	.enable(crt_on),
+	.hpos(status[115:111]),
+	.vpos(status[120:116]),
+	.vline(crt_hs_on),
+	.hs_in(video_gamma.hs),
+	.vs_in(video_gamma.vs),
+	.hs_out(CRT_HS),
+	.vs_out(CRT_VS)
 );
 
 endmodule

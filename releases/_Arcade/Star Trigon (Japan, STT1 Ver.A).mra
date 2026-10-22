@@ -26,8 +26,8 @@
 	</rom>
 	<!-- ioctl index 2: settings / rankings / bookkeeping stored on the ROM board -->
 	<nvram index="2" size="16896"/>
-	<!-- ioctl index 0: ROM board image -> DDR3 0x35000000 -->
-	<rom index="0" zip="startrgn.zip" md5="none">
+	<!-- ioctl index 0: ROM board image -> DDR3 0x35000000 (fast load: Main_MiSTer copies it there) -->
+	<rom index="0" zip="startrgn.zip" md5="none" address="0x35000000">
 		<part name="stt1a_0.bin" crc="1e090644"/>
 		<part name="stt1a_1.bin" crc="aa527694"/>
 	</rom>

@@ -5,6 +5,7 @@ compare it with a MAME tap_exp1.lua trace.
     python tools/ns10trace.py cmp <hw.txt> <mame.log> [first]
     python tools/ns10trace.py spu [clear]             # SPU per-sample timing probe "SPUT"
     python tools/ns10trace.py spu2 [clear]            # SPU transfer words / dropped samples / stash probe "SPU2"
+    python tools/ns10trace.py load                    # ROM load timing probe "LOAD" (DDR3 fast load)
 
 The core must already be running on the MiSTer (loaded from the SD card); the
 USB-Blaster talks to the FPGA's JTAG hub.
@@ -94,6 +95,17 @@ def spu2(clear=False):
           (" -- cleared" if clear else ""))
 
 
+def load():
+    """Load timing probe "LOAD" (NAMCOS10.sv): reset by the next config download (next MRA load)."""
+    v = probe("LOAD")
+    ms = lambda n, unit: n * unit / 33868.8
+    words = (v >> 32) & 0xFFF
+    print(f"ROM download (index 0) {ms(v >> 44, 65536):.0f} ms, ioctl words {words * 4096}+"
+          f"{' -> DDR3 fast load' if words == 0 else ' -> streamed (no fast load)'}, "
+          f"settings rebuild {ms((v >> 20) & 0xFFF, 16384):.1f} ms, ROM end -> CPU start {ms((v >> 4) & 0xFFFF, 32768):.0f} ms, "
+          f".nvm loaded {(v >> 3) & 1}, waiting for CPU start {(v >> 2) & 1}, rom_loaded {(v >> 1) & 1}, cfg_loaded {v & 1}")
+
+
 def mame_bus(log):
     """MAME tap lines -> 16 bit bus accesses as the core sees them."""
     for line in open(log):
@@ -147,6 +159,8 @@ if __name__ == "__main__":
         spu(len(sys.argv) > 2)
     elif sys.argv[1] == "spu2":
         spu2(len(sys.argv) > 2)
+    elif sys.argv[1] == "load":
+        load()
     elif sys.argv[1] == "read":
         read(sys.argv[2], int(sys.argv[3], 0) if len(sys.argv) > 3 else None)
     else:

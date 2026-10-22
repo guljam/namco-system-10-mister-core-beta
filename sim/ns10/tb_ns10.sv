@@ -148,7 +148,7 @@ wire  [7:0] cl_be;
 
 ns10_romcache cache
 (
-	.clk1x(clk1x), .clk2x(clk2x), .reset(reset), .ddr_base(ROM_BEAT),
+	.clk1x(clk1x), .clk2x(clk2x), .reset(reset), .inval(1'b0), .ddr_base(ROM_BEAT),
 	.rq_rd(rq_rd), .rq_wr(rq_wr), .rq_beat(rq_beat), .rq_wdata(rq_wdata), .rq_be(rq_be),
 	.rq_busy(rq_busy), .rd_valid(rq_valid), .rd_data(rq_data),
 	.c_req(cl_req), .c_we(cl_we), .c_addr(cl_addr), .c_din(cl_din), .c_be(cl_be),
@@ -178,6 +178,16 @@ always @(posedge clk1x) begin
 		end
 		bw_done <= 1;
 	end
+end
+
+// ------------------------------------------------------------------ watchdog: sim time limit (+limit_ms=, default 2000 ms)
+integer limit_ms;
+initial begin
+	if (!$value$plusargs("limit_ms=%d", limit_ms)) limit_ms = 2000;
+	#(longint'(limit_ms) * 1_000_000);
+	$display("TIMEOUT: sim time limit %0d ms reached", limit_ms);
+	$display("FAIL");
+	$finish;
 end
 
 // ------------------------------------------------------------------ stimulus
@@ -224,7 +234,11 @@ initial begin
 	@(posedge clk1x);
 	boot_start <= 0;
 	@(posedge clk1x);
-	while (boot_busy) @(posedge clk1x);
+	cyc = 0;
+	while (boot_busy) begin
+		@(posedge clk1x); cyc++;
+		if (cyc > 20_000_000) begin $display("STALL: boot copy busy after %0d clk1x", cyc); $display("FAIL"); $finish; end
+	end
 	$display("boot copy done at %t, %0d BIOS mismatches", $time, bios_bad);
 
 	fd = $fopen({dir, "/vec.txt"}, "r");
@@ -244,7 +258,10 @@ initial begin
 		e1_rd <= 0; e1_wr <= 0; e3_rd <= 0; e3_wr <= 0;
 		@(posedge clk1x);
 		cyc = 1;
-		while (e1_busy) begin @(posedge clk1x); cyc++; end
+		while (e1_busy) begin
+			@(posedge clk1x); cyc++;
+			if (cyc > 100_000) begin $display("STALL: vec %0d %s %08X busy after %0d clk1x", nvec, rw, a, cyc); $display("FAIL"); $finish; end
+		end
 		if (rw == "R" && a < 32'h1F800000) begin lat_sum += cyc; lat_n++; end
 		if (rw == "R" && chk) begin
 			got = (a < 32'h1F800000) ? e1_rdata : e3_rdata;

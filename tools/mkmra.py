@@ -1,7 +1,9 @@
 """Write the NS10 MRA files (releases/_Arcade). ROM index 0 is the DDR3 ROM image in
 ns10cfg.rom_image order, index 1 the config blob (inline hex), nvram index 2 the
 settings region (rtl/ns10/ns10_nvram.sv). Order: config, nvram, ROM - the core
-needs the board type for the nvram and the nvram before the BIOS boot copy."""
+needs the board type for the nvram and the nvram before the BIOS boot copy.
+The ROM uses the DDR3 fast load (address attribute: Main_MiSTer copies the image
+into DDR3 itself); an older Main_MiSTer ignores it and streams the ROM instead."""
 import os
 
 import ns10cfg
@@ -56,8 +58,8 @@ def mra(name, setname, year, zips, parts, game):
 	</rom>
 	<!-- ioctl index 2: settings / rankings / bookkeeping stored on the ROM board -->
 	<nvram index="2" size="{NVRAM_SIZE[ns10cfg.GAMES[game]["board"]]}"/>
-	<!-- ioctl index 0: ROM board image -> DDR3 0x35000000 -->
-	<rom index="0" zip="{zips}" md5="none">
+	<!-- ioctl index 0: ROM board image -> DDR3 0x35000000 (fast load: Main_MiSTer copies it there) -->
+	<rom index="0" zip="{zips}" md5="none" address="0x35000000">
 {partlines}
 	</rom>
 </misterromdescription>
