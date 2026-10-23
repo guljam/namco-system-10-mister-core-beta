@@ -19,6 +19,10 @@
 //  init does (MEM(N): NAND0 pages 0x40.. / 0x120.., MEM(M): flash 0..0x61FFF,
 //  unscramble(w ^ xor), rest 0x55). 'reset' must be the board (cold) reset,
 //  not the CPU reset: the CPU is held while boot_busy is set.
+//
+//  Savestate (type 17 dword index, only while the CPU is paused and the board
+//  is idle): 0x0000-0x1FFF board RAM words, 0x2000-0x23FF NAND page register
+//  bytes, 0x2400-0x241F registers. ss_dout is valid one clock after ss_addr.
 //============================================================================
 
 module ns10_romboard
@@ -74,7 +78,14 @@ module ns10_romboard
 	output reg        bw_req,
 	output reg [21:0] bw_addr,
 	output reg [31:0] bw_data,
-	input             bw_done
+	input             bw_done,
+
+	// savestate
+	input             ss_active,
+	input      [13:0] ss_addr,
+	input      [31:0] ss_din,
+	input             ss_wr,
+	output     [31:0] ss_dout
 );
 
 localparam BT_MEMM = 2'd0, BT_MEMN = 2'd1;
@@ -130,9 +141,11 @@ reg   [9:0] pr_addr;
 reg   [7:0] pr_wdata;
 reg         pr_we;
 reg   [7:0] pr_q;
+wire        ss_pr_we = ss_wr && (ss_addr[13:10] == 4'b1000);
 always @(posedge clk) begin
-	if (pr_we) pagereg[pr_addr] <= pr_wdata;
-	pr_q <= pagereg[pr_addr];
+	if (ss_pr_we) pagereg[ss_addr[9:0]] <= ss_din[7:0];
+	else if (pr_we) pagereg[pr_addr] <= pr_wdata;
+	pr_q <= pagereg[ss_active ? ss_addr[9:0] : pr_addr];
 end
 
 // ======================================================================== board RAM (0x1F500000)
@@ -143,11 +156,14 @@ wire        sram_wh = sram_we && (addr[0] || be[1]);
 wire  [7:0] sram_dh = addr[0] ? wdata[7:0] : wdata[15:8];
 reg   [7:0] sram_lo[8192], sram_hi[8192];
 reg  [15:0] sram_q;
+wire        ss_sram_we = ss_wr && !ss_addr[13];
+wire [12:0] sram_wa = ss_sram_we ? ss_addr[12:0] : addr[13:1];
+wire [12:0] sram_ra = ss_active ? ss_addr[12:0] : addr[13:1];
 
 always @(posedge clk) begin
-	if (sram_wl) sram_lo[addr[13:1]] <= wdata[7:0];
-	if (sram_wh) sram_hi[addr[13:1]] <= sram_dh;
-	sram_q <= {sram_hi[addr[13:1]], sram_lo[addr[13:1]]};
+	if (sram_wl | ss_sram_we) sram_lo[sram_wa] <= ss_sram_we ? ss_din[7:0]  : wdata[7:0];
+	if (sram_wh | ss_sram_we) sram_hi[sram_wa] <= ss_sram_we ? ss_din[15:8] : sram_dh;
+	sram_q <= {sram_hi[sram_ra], sram_lo[sram_ra]};
 end
 
 // ======================================================================== main FSM
@@ -228,6 +244,34 @@ endfunction
 
 wire [16:0] boot_page = (b_off < 22'h20000) ? ({4'd0, b_off[21:9]} + 17'h40) : ({4'd0, b_off[21:9]} + 17'h20);
 wire [25:0] boot_nand = {boot_page, 9'd0} + {boot_page, 4'd0} + {17'd0, b_off[8:0]};
+
+// ======================================================================== savestate registers (0x2400 + r)
+wire        ss_rg_we = ss_wr && (ss_addr[13:5] == 9'h120);
+wire  [4:0] ss_r     = ss_addr[4:0];
+wire  [2:0] ss_dev   = ss_addr[2:0];
+wire  [3:0] ss_wbk   = ss_r[3:0] - 4'd2;           // write buffer pair 0..7 (r 2..9)
+reg  [31:0] ss_rg_q;
+reg         ss_a13, ss_pr;
+
+always @(posedge clk) begin
+	ss_a13 <= ss_addr[13];
+	ss_pr  <= (ss_addr[13:10] == 4'b1000);
+	ss_rg_q <= 32'd0;
+	casez (ss_r)
+		5'd0:     ss_rg_q <= {4'd0, bank, direct, fmode, fstatus, master_lock, wb_count, wb_n};
+		5'd1:     ss_rg_q <= {12'd0, wb_start};
+		5'd2, 5'd3, 5'd4, 5'd5, 5'd6, 5'd7, 5'd8, 5'd9:
+		          ss_rg_q <= {wb[{ss_wbk[2:0], 1'b1}], wb[{ss_wbk[2:0], 1'b0}]};
+		5'd10:    ss_rg_q <= {13'd0, idx, ctrl};
+		5'd11:    ss_rg_q <= {8'd0, nand_address};
+		5'd12:    ss_rg_q <= {21'd0, prog_count};
+		5'b10???: ss_rg_q <= {1'b0, n_mode[ss_dev], n_pm[ss_dev], n_ptr[ss_dev], n_status[ss_dev], n_page[ss_dev]};
+		5'b11???: ss_rg_q <= {20'd0, n_byte[ss_dev]};
+		default: ;
+	endcase
+end
+
+assign ss_dout = !ss_a13 ? {16'd0, sram_q} : ss_pr ? {24'd0, pr_q} : ss_rg_q;
 
 integer i;
 
@@ -757,6 +801,27 @@ always @(posedge clk) begin
 
 		default: state <= S_IDLE;
 		endcase
+
+		// savestate load (CPU paused, board idle)
+		if (ss_rg_we) begin
+			casez (ss_r)
+				5'd0: begin
+					{bank, direct, fmode, fstatus, master_lock, wb_count, wb_n} <= ss_din[27:0];
+					lat_v <= 0;
+				end
+				5'd1:  wb_start <= ss_din[19:0];
+				5'd2, 5'd3, 5'd4, 5'd5, 5'd6, 5'd7, 5'd8, 5'd9: begin
+					wb[{ss_wbk[2:0], 1'b0}] <= ss_din[15:0];
+					wb[{ss_wbk[2:0], 1'b1}] <= ss_din[31:16];
+				end
+				5'd10: {idx, ctrl} <= ss_din[18:0];
+				5'd11: nand_address <= ss_din[23:0];
+				5'd12: prog_count <= ss_din[10:0];
+				5'b10???: {n_mode[ss_dev], n_pm[ss_dev], n_ptr[ss_dev], n_status[ss_dev], n_page[ss_dev]} <= ss_din[30:0];
+				5'b11???: n_byte[ss_dev] <= ss_din[11:0];
+				default: ;
+			endcase
+		end
 	end
 end
 

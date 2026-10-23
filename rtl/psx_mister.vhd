@@ -100,6 +100,7 @@ entity psx_mister is
       dbg_gpu               : out std_logic_vector(39 downto 0);
       dbg_bus               : out std_logic_vector(43 downto 0);
       irq10                 : in  std_logic;
+      vblank_irq            : out std_logic;
       -- RAM/BIOS interface      
       biosregion            : in  std_logic_vector(1 downto 0);  
       ram_refresh           : out std_logic;
@@ -303,6 +304,16 @@ entity psx_mister is
       validSStates          : out std_logic_vector(3 downto 0);
       rewind_on             : in  std_logic;
       rewind_active         : in  std_logic;
+      -- NS10: board state savestate bus (psx_top.vhd)
+      ns10ss_active         : out std_logic;
+      ns10ss_idle           : in  std_logic;
+      ns10ss_addr           : out unsigned(19 downto 0);
+      ns10ss_din            : out std_logic_vector(31 downto 0);
+      ns10ss_wren           : out std_logic_vector(1 downto 0);
+      ns10ss_rden           : out std_logic;
+      ns10ss_dout           : in  std_logic_vector(31 downto 0);
+      ns10ss_done           : in  std_logic;
+      ns10ss_nvaddr         : in  std_logic_vector(25 downto 0);
       -- cheats
       cheat_clear           : in  std_logic;
       cheats_enabled        : in  std_logic;
@@ -423,6 +434,7 @@ begin
       dbg_gpu               => dbg_gpu,
       dbg_bus               => dbg_bus,
       irq10                 => irq10,
+      vblank_irq            => vblank_irq,
       -- RAM/BIOS interface        
       biosregion            => biosregion,
       ram_refresh           => ram_refresh,
@@ -708,7 +720,16 @@ begin
       savestate_number      => savestate_number,     
       state_loaded          => state_loaded,
       validSStates          => validSStates,
-      rewind_on             => rewind_on,    
+      rewind_on             => rewind_on,
+      ns10ss_active         => ns10ss_active,
+      ns10ss_idle           => ns10ss_idle,
+      ns10ss_addr           => ns10ss_addr,
+      ns10ss_din            => ns10ss_din,
+      ns10ss_wren           => ns10ss_wren,
+      ns10ss_rden           => ns10ss_rden,
+      ns10ss_dout           => ns10ss_dout,
+      ns10ss_done           => ns10ss_done,
+      ns10ss_nvaddr         => ns10ss_nvaddr,
       -- cheats
       rewind_active         => rewind_active,
       cheat_clear           => cheat_clear,

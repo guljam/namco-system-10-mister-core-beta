@@ -34,7 +34,7 @@ end entity;
 
 architecture arch of statemanager is
 
-   constant SAVESTATESIZE : integer := 16#100000#; -- 1048576 Dwords = 4096 kbyte
+   constant SAVESTATESIZE : integer := 16#200000#; -- NS10: 2097152 Dwords = 8192 kbyte (savestates.vhd)
    constant REWIND_COUNT  : integer := 8;
    constant TIME_CAPTURE  : integer := 20000000;
    constant TIME_REWIND   : integer := 10000000;

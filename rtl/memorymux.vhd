@@ -165,7 +165,7 @@ entity memorymux is
       loading_savestate    : in  std_logic;
       SS_reset             : in  std_logic;
       SS_DataWrite         : in  std_logic_vector(31 downto 0);
-      SS_Adr               : in  unsigned(18 downto 0);
+      SS_Adr               : in  unsigned(19 downto 0);
       SS_wren_SDRam        : in  std_logic;
       SS_rden_SDRam        : in  std_logic
    );
@@ -607,6 +607,26 @@ begin
                               when others => null;
                            end case;
                            
+                        elsif (mem_addressInstr(28 downto 0) >= 16#1FC00000# and mem_isCache = '1') then -- BIOS, NS10: kseg0 fetch
+                           -- NS10: the BIOS module runs from kseg0 (0x9FC2xxxx), cacheable as on the board:
+                           -- fill the i-cache line with a burst like a RAM fetch (a single read would leave
+                           -- the i-cache data stale, so it must not mark words valid)
+                           ram_ena         <= '1';
+                           ram_cache       <= '1';
+                           ram_rnw         <= '1';
+                           ram_Adr         <= "01" & "0" & std_logic_vector(mem_addressInstr(21 downto 2)) & "00";
+                           state           <= IDLE;
+                           readram         <= '1';
+                           ram_rotate_bits <= "00";
+
+                           case (mem_addressInstr(3 downto 2)) is
+                              when "00" => mem_tagvalids <= "1111";
+                              when "01" => mem_tagvalids <= "1110";
+                              when "10" => mem_tagvalids <= "1100";
+                              when "11" => mem_tagvalids <= "1000";
+                              when others => null;
+                           end case;
+
                         elsif (mem_addressInstr(28 downto 0) >= 16#1FC00000#) then -- BIOS, NS10: full 4 MByte window
                            ram_ena         <= '1';
                            ram_cache       <= '0';
@@ -621,9 +641,7 @@ begin
                               waitcnt        <= 26;
                               bios_page_open <= '1';
                            end if;
-                           
-                           -- NS10: the BIOS runs from kseg0. A single SDRAM read does not fill the
-                           -- i-cache data (only ram_cache bursts do), so don't mark the word valid.
+
                            mem_tagvalids <= mem_oldtagvalids;
                         else
                            report "should never happen" severity failure;
@@ -916,7 +934,7 @@ begin
                      ram_ena       <= '1';
                      ram_cache     <= '0';
                      ram_rnw       <= '0';
-                     ram_Adr       <= "00" & "00" & std_logic_vector(SS_Adr(18 downto 0)) & "00";
+                     ram_Adr       <= "000" & std_logic_vector(SS_Adr(19 downto 0)) & "00"; -- NS10: 4 MByte
                      ram_be        <= "1111";
                      ram_dataWrite <= SS_DataWrite;
                   end if;
@@ -924,7 +942,7 @@ begin
                      ram_ena       <= '1';
                      ram_cache     <= '0';
                      ram_rnw       <= '1';
-                     ram_Adr       <= "00" & "00" & std_logic_vector(SS_Adr(18 downto 0)) & "00";
+                     ram_Adr       <= "000" & std_logic_vector(SS_Adr(19 downto 0)) & "00"; -- NS10: 4 MByte
                   end if;
             
                when others => null;

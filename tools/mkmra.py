@@ -32,7 +32,15 @@ MRAS = [
 ]
 
 
-BUTTONS = {"gamshara": "Button 1,Button 2,Button 3", "startrgn": "Button 1,-,-"}
+# key mapping names per core button (J1 order), and the default map: Main_MiSTer gives the default list to the
+# named ("-" skipped) buttons in order; an empty entry = no default (Drill (Auto), Pause, Service, Savestates)
+BUTTONS = {
+    "gamshara": ("Button 1,Button 2,Button 3,-,-,-", "A,B,X,Start,Select"),
+    "startrgn": ("Button 1,-,-,-,-,-", "A,Start,Select"),
+    # Driller sets: Button2 = Drill (Auto) (config flag, rtl/ns10/ns10_autofire.sv)
+    "driller": ("Drill,Drill (Auto),-,-,-,-", "A,,Start,Select"),
+}
+SYS_BUTTONS = "Start,Coin,Pause,Service,-,Savestates"
 
 # settings region size: MEM(M) flash 0x40000-0x43FFF, MEM(N) NAND0 block 1 (0x4200-0x83FF)
 NVRAM_SIZE = {0: 16384, 1: 16896}
@@ -48,7 +56,7 @@ def mra(name, setname, year, zips, parts, game):
 	<year>{year}</year>
 	<manufacturer>{"Mitchell" if game == "gamshara" else "Namco"}</manufacturer>
 	<rbf>SYSTEM10</rbf>
-	<buttons names="{BUTTONS.get(game, "Drill,-,-")},-,-,-,Start,Coin,Pause,Service" default="A,B,X,Y,R,L,Start,Select"/>
+	<buttons names="{BUTTONS.get(game, BUTTONS["driller"])[0]},{SYS_BUTTONS}" default="{BUTTONS.get(game, BUTTONS["driller"])[1]}"/>
 
 	<!-- ioctl index 1: board configuration (tools/ns10cfg.py blob {game}) -->
 	<rom index="1">

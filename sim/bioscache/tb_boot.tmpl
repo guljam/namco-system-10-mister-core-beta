@@ -1,0 +1,280 @@
+-- BIOS boot trace bench (GHDL): psx_mister with the NS10 BIOS in the SDRAM model, NS10 board (EXP1 / EXP3) as a
+-- stub (reads 0xFFFF), from reset to T_US. Generated from tb_boot.tmpl by run.sh (port map as sim/savestate).
+--   Writes <OUTNAME>.txt: one line per committed instruction: pc opcode regsum cause time_ns
+--   Reports the instruction count per address region (kseg1 BIOS, kseg0 BIOS, RAM) and every 1 ms.
+-- run.sh builds it from two RTL trees (HEAD memorymux = uncached kseg0 BIOS fetch, working tree = i-cache line
+-- fill) and compares the traces (cmpboot.py): same instruction stream, earlier times.
+-- Watchdogs: SIMTIME_US limit, no instruction for STALL_US.
+library IEEE;
+use IEEE.std_logic_1164.all;
+use IEEE.numeric_std.all;
+use STD.textio.all;
+
+library work;
+use work.pexport.all;
+
+entity tb_boot is
+   generic
+   (
+      BIOSFILE   : string  := "bios.bin";
+      OUTNAME    : string  := "boot";
+      T_US       : integer := 5000;
+      SIMTIME_US : integer := 60000;
+      STALL_US   : integer := 5000
+   );
+end entity;
+
+architecture arch of tb_boot is
+
+   -- PLL aligned clocks: tick = 1/12 clk1x period
+   constant TICK              : time := 2461 ps;
+   signal clk1x               : std_logic := '0';
+   signal clk2x               : std_logic := '0';
+   signal clk3x               : std_logic := '0';
+   signal clkvid              : std_logic := '0';
+   signal reset               : std_logic := '1';
+   signal done_sim            : boolean := false;
+
+   signal TURBO_MEM           : std_logic := '1';
+   signal TURBO_COMP          : std_logic := '1';
+   signal TURBO_CACHE         : std_logic := '1';
+   signal TURBO_CACHE50       : std_logic := '0';
+
+   signal exp1_addr           : unsigned(22 downto 0);
+   signal exp1_read           : std_logic;
+   signal exp1_write          : std_logic;
+   signal exp1_dataWrite      : std_logic_vector(15 downto 0);
+   signal exp3_addr           : unsigned(20 downto 0);
+   signal exp3_read           : std_logic;
+   signal exp3_write          : std_logic;
+   signal exp3_dataWrite      : std_logic_vector(15 downto 0);
+
+   signal ram_refresh         : std_logic;
+   signal ram_dataWrite       : std_logic_vector(31 downto 0);
+   signal ram_dataRead32      : std_logic_vector(31 downto 0);
+   signal ram_Adr             : std_logic_vector(24 downto 0);
+   signal ram_cntDMA          : std_logic_vector(1 downto 0);
+   signal ram_be              : std_logic_vector(3 downto 0);
+   signal ram_rnw             : std_logic;
+   signal ram_ena             : std_logic;
+   signal ram_dma             : std_logic;
+   signal ram_cache           : std_logic;
+   signal ram_done            : std_logic;
+   signal ram_dmafifo_adr     : std_logic_vector(22 downto 0);
+   signal ram_dmafifo_data    : std_logic_vector(31 downto 0);
+   signal ram_dmafifo_empty   : std_logic;
+   signal ram_dmafifo_read    : std_logic;
+   signal cache_wr            : std_logic_vector(3 downto 0);
+   signal cache_data          : std_logic_vector(31 downto 0);
+   signal cache_addr          : std_logic_vector(7 downto 0);
+   signal dma_wr              : std_logic;
+   signal dma_reqprocessed    : std_logic;
+   signal dma_data            : std_logic_vector(31 downto 0);
+
+   signal DDRAM_BUSY          : std_logic := '0';
+   signal DDRAM_BURSTCNT      : std_logic_vector(7 downto 0);
+   signal DDRAM_ADDR          : std_logic_vector(28 downto 0);
+   signal DDRAM_DOUT          : std_logic_vector(63 downto 0) := (others => '0');
+   signal DDRAM_DOUT_READY    : std_logic := '0';
+   signal DDRAM_RD            : std_logic;
+   signal DDRAM_DIN           : std_logic_vector(63 downto 0);
+   signal DDRAM_BE            : std_logic_vector(7 downto 0);
+   signal DDRAM_WE            : std_logic;
+
+   -- savestates unused
+   signal save_state          : std_logic := '0';
+   signal load_state          : std_logic := '0';
+   signal ss_slot             : integer range 0 to 3 := 0;
+   signal state_loaded        : std_logic;
+   signal ns10ss_active       : std_logic;
+   signal ns10ss_addr         : unsigned(19 downto 0);
+   signal ns10ss_din          : std_logic_vector(31 downto 0);
+   signal ns10ss_wren         : std_logic_vector(1 downto 0);
+   signal ns10ss_rden         : std_logic;
+   signal ns10ss_dout         : std_logic_vector(31 downto 0) := (others => '0');
+   signal ns10ss_done         : std_logic := '0';
+   constant NVADDR            : std_logic_vector(25 downto 0) := std_logic_vector(to_unsigned(16#1400000# + 2 * 16#840#, 26));
+
+   signal instr_count         : integer := 0;
+   signal last_instr          : time := 0 ns;
+
+begin
+
+   -- 12 ticks per clk1x: clk1x / clk2x / clk3x rising edges coincide every clk1x period (PLL)
+   pclk : process
+      variable n : integer := 0;
+   begin
+      while not done_sim loop
+         if (n mod 6 = 0) then clk1x <= not clk1x; end if;
+         if (n mod 3 = 0) then clk2x <= not clk2x; end if;
+         if (n mod 2 = 0) then clk3x <= not clk3x; end if;
+         if (n mod 4 = 0) then clkvid <= not clkvid; end if;
+         n := (n + 1) mod 12;
+         wait for TICK;
+      end loop;
+      wait;
+   end process;
+
+   reset <= '0' after 5 us;
+
+   dut : entity work.psx_mister
+   generic map (is_simu => '1')
+   port map
+   (
+@PORTMAP@
+   );
+
+   isdram : entity work.sdram_model3x
+   generic map
+   (
+      DOREFRESH     => '1',
+      INITFILE      => BIOSFILE,
+      INITOFFSET    => 16#800000#,
+      SCRIPTLOADING => '0',
+      FILELOADING   => '1'
+   )
+   port map
+   (
+      clk               => clk1x,
+      clk3x             => clk3x,
+      refresh           => ram_refresh,
+      addr              => "00" & ram_Adr,
+      req               => ram_ena,
+      ram_dma           => ram_dma,
+      ram_dmacnt        => ram_cntDMA,
+      ram_iscache       => ram_cache,
+      rnw               => ram_rnw,
+      be                => ram_be,
+      di                => ram_dataWrite,
+      do                => open,
+      do32              => ram_dataRead32,
+      done              => ram_done,
+      cache_wr          => cache_wr,
+      cache_data        => cache_data,
+      cache_addr        => cache_addr,
+      dma_wr            => dma_wr,
+      dma_data          => dma_data,
+      reqprocessed      => dma_reqprocessed,
+      ram_idle          => open,
+      ram_dmafifo_adr   => ram_dmafifo_adr,
+      ram_dmafifo_data  => ram_dmafifo_data,
+      ram_dmafifo_empty => ram_dmafifo_empty,
+      ram_dmafifo_read  => ram_dmafifo_read
+   );
+
+   -- DDR3 model, fixed latency, bursts: beats 0x000000-0x1FFFFF (VRAM, SPU RAM), other addresses read 0
+   pddr3 : process
+      type t_mem is array(natural range <>) of integer;
+      variable lo, hi     : t_mem(0 to 2**21 - 1) := (others => 0);
+      variable a, n, k    : integer;
+      variable w          : std_logic_vector(63 downto 0);
+
+      impure function rd(b : integer) return std_logic_vector is
+      begin
+         if (b < 2**21) then
+            return std_logic_vector(to_signed(hi(b), 32)) & std_logic_vector(to_signed(lo(b), 32));
+         end if;
+         return (63 downto 0 => '0');
+      end function;
+
+      procedure wr(b : integer; d : std_logic_vector(63 downto 0)) is
+      begin
+         if (b < 2**21) then
+            hi(b) := to_integer(signed(d(63 downto 32))); lo(b) := to_integer(signed(d(31 downto 0)));
+         end if;
+      end procedure;
+
+   begin
+      wait until rising_edge(clk2x);
+      if (DDRAM_RD = '1') then
+         a := to_integer(unsigned(DDRAM_ADDR(24 downto 0)));
+         n := to_integer(unsigned(DDRAM_BURSTCNT));
+         DDRAM_BUSY <= '1';
+         for i in 1 to 12 loop wait until rising_edge(clk2x); end loop;
+         for i in 0 to n - 1 loop
+            DDRAM_DOUT       <= rd(a + i);
+            DDRAM_DOUT_READY <= '1';
+            wait until rising_edge(clk2x);
+         end loop;
+         DDRAM_DOUT_READY <= '0';
+         DDRAM_BUSY       <= '0';
+      elsif (DDRAM_WE = '1') then
+         a := to_integer(unsigned(DDRAM_ADDR(24 downto 0)));
+         n := to_integer(unsigned(DDRAM_BURSTCNT));
+         k := 0;
+         loop
+            w := rd(a + k);
+            for b in 0 to 7 loop
+               if (DDRAM_BE(b) = '1') then w(b * 8 + 7 downto b * 8) := DDRAM_DIN(b * 8 + 7 downto b * 8); end if;
+            end loop;
+            wr(a + k, w);
+            k := k + 1;
+            exit when k >= n;
+            loop
+               wait until rising_edge(clk2x);
+               exit when DDRAM_WE = '1';
+            end loop;
+         end loop;
+      end if;
+   end process;
+
+   -- run to T_US
+   pctl : process
+   begin
+      wait for T_US * 1 us;
+      report "DONE at " & time'image(now) & ", instructions " & integer'image(instr_count) severity note;
+      done_sim <= true;
+      wait;
+   end process;
+
+   -- watchdog: simulation time and CPU stall
+   pwatch : process
+   begin
+      wait until rising_edge(clk1x);
+      if (now > SIMTIME_US * 1 us) then
+         report "FAIL: simulation time limit" severity error;
+         std.env.stop(1);
+      end if;
+      if (now > 50 us and now - last_instr > STALL_US * 1 us) then
+         report "FAIL: no instruction for " & integer'image(STALL_US) & " us at " & time'image(now) severity error;
+         std.env.stop(1);
+      end if;
+   end process;
+
+   -- instruction trace and region counts
+   ptrace : process
+      alias cpu_done   is tb_cpu_done;    -- package signals in the sim copy of export.vhd, driven by psx_top (run.sh)
+      alias cpu_export is tb_cpu_export;
+      file f          : text;
+      variable l      : line;
+      variable sum    : unsigned(31 downto 0);
+      variable n_k1, n_k0, n_ram, n_oth : integer := 0;
+      variable next_ms : integer := 1;
+   begin
+      file_open(f, OUTNAME & ".txt", write_mode);
+      while not done_sim loop
+         wait until rising_edge(clk1x);
+         if (cpu_done = '1') then
+            instr_count <= instr_count + 1;
+            last_instr  <= now;
+            sum := (others => '0');
+            for i in 1 to 31 loop sum := sum + cpu_export.regs(i); end loop;
+            write(l, to_hstring(cpu_export.pc) & " " & to_hstring(cpu_export.opcode) & " " & to_hstring(sum) & " " & to_hstring(cpu_export.cause) & " " & integer'image(now / 1 ns));
+            writeline(f, l);
+            if    (cpu_export.pc(31 downto 22) = "1011111111") then n_k1  := n_k1 + 1;   -- 0xBFC00000-0xBFFFFFFF
+            elsif (cpu_export.pc(31 downto 22) = "1001111111") then n_k0  := n_k0 + 1;   -- 0x9FC00000-0x9FFFFFFF
+            elsif (cpu_export.pc(28 downto 23) = "000000")     then n_ram := n_ram + 1;
+            else n_oth := n_oth + 1; end if;
+         end if;
+         if (now >= next_ms * 1 ms) then
+            report "t=" & integer'image(next_ms) & " ms instr " & integer'image(n_k1 + n_k0 + n_ram + n_oth) & " (kseg1 BIOS " & integer'image(n_k1) &
+                   ", kseg0 BIOS " & integer'image(n_k0) & ", RAM " & integer'image(n_ram) & ", other " & integer'image(n_oth) & ")" severity note;
+            next_ms := next_ms + 1;
+         end if;
+      end loop;
+      report "regions: kseg1 BIOS " & integer'image(n_k1) & ", kseg0 BIOS " & integer'image(n_k0) & ", RAM " & integer'image(n_ram) & ", other " & integer'image(n_oth) severity note;
+      file_close(f);
+      wait;
+   end process;
+
+end architecture;

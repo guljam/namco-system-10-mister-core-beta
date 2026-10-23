@@ -105,6 +105,7 @@ entity psx_top is
       dbg_gpu               : out std_logic_vector(39 downto 0);
       dbg_bus               : out std_logic_vector(43 downto 0);
       irq10                 : in  std_logic;
+      vblank_irq            : out std_logic;   -- NS10: GPU VBLANK interrupt line (irq.vhd input), IRQ10 2x VBlank mode
       -- RAM/BIOS interface  
       biosregion            : in  std_logic_vector(1 downto 0);      
       ram_refresh           : out std_logic;
@@ -258,6 +259,16 @@ entity psx_top is
       validSStates          : out std_logic_vector(3 downto 0);
       rewind_on             : in  std_logic;
       rewind_active         : in  std_logic;
+      -- NS10: board state outside the PSX core (NAMCOS10.sv): savestate types 17 (board) and 18 (NVRAM region)
+      ns10ss_active         : out std_logic;                      -- savestate owns DDR3, CPU paused (clk2x)
+      ns10ss_idle           : in  std_logic;                      -- ROM board / decrypter / ROM cache idle
+      ns10ss_addr           : out unsigned(19 downto 0);          -- dword index (clk1x, held)
+      ns10ss_din            : out std_logic_vector(31 downto 0);
+      ns10ss_wren           : out std_logic_vector(1 downto 0);   -- one clk1x: 0 board, 1 NVRAM region
+      ns10ss_rden           : out std_logic;                      -- one clk1x: board
+      ns10ss_dout           : in  std_logic_vector(31 downto 0);
+      ns10ss_done           : in  std_logic;                      -- one clk1x: write taken
+      ns10ss_nvaddr         : in  std_logic_vector(25 downto 0);  -- DDR3 dword address of the NVRAM region
       -- cheats
       cheat_clear           : in  std_logic;
       cheats_enabled        : in  std_logic;
@@ -639,9 +650,9 @@ architecture arch of psx_top is
    signal savestate_busy         : std_logic; 
    
    signal SS_DataWrite           : std_logic_vector(31 downto 0);
-   signal SS_Adr                 : unsigned(18 downto 0);
-   signal SS_wren                : std_logic_vector(16 downto 0);
-   signal SS_rden                : std_logic_vector(16 downto 0);
+   signal SS_Adr                 : unsigned(19 downto 0);
+   signal SS_wren                : std_logic_vector(18 downto 0);
+   signal SS_rden                : std_logic_vector(18 downto 0);
    signal SS_DataRead_CPU        : std_logic_vector(31 downto 0);
    signal SS_DataRead_GPU        : std_logic_vector(31 downto 0);
    signal SS_DataRead_GPUTiming  : std_logic_vector(31 downto 0);
@@ -751,7 +762,7 @@ begin
    end process;
 
  
-   SS_idle    <= SS_Idle_gpu and SS_Idle_mdec and SS_Idle_cd and SS_idle_spu and SS_idle_pad and SS_idle_irq and SS_idle_cpu and SS_idle_gte and SS_idle_dma;
+   SS_idle    <= SS_Idle_gpu and SS_Idle_mdec and SS_Idle_cd and SS_idle_spu and SS_idle_pad and SS_idle_irq and SS_idle_cpu and SS_idle_gte and SS_idle_dma and ns10ss_idle;
    
    Pause_Idle <= SS_Idle_gpu and SS_Idle_mdec and Pause_idle_cd and SS_idle_spu and SS_idle_pad and SS_idle_irq and SS_idle_cpu and SS_idle_gte and SS_idle_dma; 
    
@@ -765,7 +776,9 @@ begin
    dbg_cpu_wdata  <= mem_dataWrite;
    dbg_cpu_done   <= mem_done;
    dbg_cpu_rdata  <= mem_dataRead;
-   
+
+   vblank_irq     <= irq_VBLANK;
+
    dbg_bus(31 downto 0)  <= bus_gpu_dataWrite when (bus_gpu_write = '1') else bus_dma_dataWrite when (bus_dma_write = '1') else bus_irq_dataWrite;
    dbg_bus(38 downto 32) <= "000" & std_logic_vector(bus_gpu_addr) when (bus_gpu_write = '1' or bus_gpu_read = '1') else
                             std_logic_vector(bus_dma_addr) when (bus_dma_write = '1') else "000" & std_logic_vector(bus_irq_addr);
@@ -1767,7 +1780,7 @@ begin
       loading_savestate    => loading_savestate,
       SS_reset             => SS_reset,
       SS_DataWrite         => SS_DataWrite,
-      SS_Adr               => SS_Adr(18 downto 0),
+      SS_Adr               => SS_Adr(19 downto 0),
       SS_wren_SDRam        => SS_wren(16),
       SS_rden_SDRam        => SS_rden(16)
    );
@@ -1884,6 +1897,13 @@ begin
       debug_firstGTE       => debug_firstGTE
    );
    
+   -- NS10 board state
+   ns10ss_active <= ddr3_savestate;
+   ns10ss_addr   <= SS_Adr;
+   ns10ss_din    <= SS_DataWrite;
+   ns10ss_wren   <= SS_wren(18 downto 17);
+   ns10ss_rden   <= SS_rden(17);
+
    ddr3_BURSTCNT <= ss_ram_BURSTCNT     when (ddr3_savestate = '1') else arbiter_BURSTCNT when (arbiter_active = '1') else  vram_BURSTCNT;  
    ddr3_ADDR     <= ss_ram_ADDR & "00"  when (ddr3_savestate = '1') else arbiter_ADDR     when (arbiter_active = '1') else  vram_ADDR;      
    ddr3_DIN      <= ss_ram_DIN          when (ddr3_savestate = '1') else arbiter_DIN      when (arbiter_active = '1') else  vram_DIN;       
@@ -1978,7 +1998,7 @@ begin
    generic map
    (
       FASTSIM                 => is_simu,
-      Softmap_SaveState_ADDR  => 58720256
+      Softmap_SaveState_ADDR  => 50331648  -- NS10: DDR3 0x3C000000 (4 slots x 8 MB), CONF_STR "SS3C000000:800000"
    )
    port map
    (
@@ -2028,6 +2048,9 @@ begin
       SS_DataRead_SIO         => SS_DataRead_SIO,
       SS_DataRead_SCP         => SS_DataRead_SCP,
       SS_DataRead_CD          => SS_DataRead_CD,
+      SS_DataRead_NS10        => ns10ss_dout,
+      ns10_done               => ns10ss_done,
+      ns10_nv_addr            => ns10ss_nvaddr,
 
       sdram_done              => ram_done,
       
@@ -2058,7 +2081,7 @@ begin
    istatemanager : entity work.statemanager
    generic map
    (
-      Softmap_SaveState_ADDR   => 58720256,
+      Softmap_SaveState_ADDR   => 50331648,  -- NS10: DDR3 0x3C000000
       Softmap_Rewind_ADDR      => 33554432
    )
    port map

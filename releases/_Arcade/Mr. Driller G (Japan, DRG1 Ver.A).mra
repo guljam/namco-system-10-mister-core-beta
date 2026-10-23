@@ -4,12 +4,12 @@
 	<year>2001</year>
 	<manufacturer>Namco</manufacturer>
 	<rbf>SYSTEM10</rbf>
-	<buttons names="Drill,-,-,-,-,-,Start,Coin,Pause,Service" default="A,B,X,Y,R,L,Start,Select"/>
+	<buttons names="Drill,Drill (Auto),-,-,-,-,Start,Coin,Pause,Service,-,Savestates" default="A,,Start,Select"/>
 
 	<!-- ioctl index 1: board configuration (tools/ns10cfg.py blob mrdrilrg) -->
 	<rom index="1">
 		<part>
-		01 03 AA AA 0E 0C 0F 0D 0A 09 08 0B 04 05 06 07 00 01 03 02 02 01 00 00 11 00 73 00 00 00 08 01
+		01 03 AA AA 0E 0C 0F 0D 0A 09 08 0B 04 05 06 07 00 01 03 02 02 03 00 00 11 00 73 00 00 00 08 01
 		00 00 00 00 00 00 00 20 1A 80 00 60 02 00 00 00 00 00 18 00 00 00 20 04 00 00 00 88 00 00 00 C0
 		01 04 62 68 5C 11 01 04 62 68 5C 11 94 20 80 02 81 00 94 20 80 02 81 00 A8 70 52 A6 81 00 A8 70
 		52 A6 81 00 10 00 81 00 00 00 10 00 81 00 00 00 59 30 0F 08 2C 4C 59 30 0F 08 2C 4C 00 95 0A 47

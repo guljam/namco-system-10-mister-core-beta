@@ -1,0 +1,6 @@
+gen/
+ghdl/
+*.log
+*_a.txt
+*_b.txt
+*_slot.txt

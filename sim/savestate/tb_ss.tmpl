@@ -1,0 +1,530 @@
+-- Savestate test bench (GHDL): psx_mister with the NS10 BIOS in the SDRAM model, NS10 board (EXP1 / EXP3) as a stub,
+-- NS10 board savestate client (types 17 / 18) as a model. Generated from tb_ss.tmpl by run.sh.
+--
+-- Three runs (each fits the 15 min limit; the core resumes only at the video position it paused at, up to a frame):
+--   MODE "save":  run to T_SAVE_US, save slot 0, record N_INSTR instructions -> <OUTNAME>_a.txt, slot 0 -> SLOTFILE
+--   MODE "load":  run to T_SAVE_US, SLOTFILE -> slot 1 (= Main_MiSTer loading a state file), scramble the NS10 board
+--                 state, the NVRAM region and VRAM, restore slot 1 (header check path), record N_INSTR -> <OUTNAME>_b.txt;
+--                 checks: board state / NVRAM region writes, VRAM / SPU RAM checksums equal the saved ones
+--   MODE "empty": run to T_SAVE_US, restore slot 2 (empty): the header check fails, no reset, the CPU keeps running
+--   run.sh compares the save trace A and the load trace B.
+-- increaseSSHeaderCount = 0: no wait for the HPS after the save (SAVEWAITHPSDONE would hold the core ~1 s).
+-- Watchdogs: SIMTIME_US limit, no instruction for STALL_US outside a savestate, save / restore not finishing.
+library IEEE;
+use IEEE.std_logic_1164.all;
+use IEEE.numeric_std.all;
+use STD.textio.all;
+
+library work;
+use work.pexport.all;
+
+entity tb_ss is
+   generic
+   (
+      BIOSFILE   : string  := "bios.bin";
+      MODE       : string  := "save";
+      OUTNAME    : string  := "ss";
+      SLOTFILE   : string  := "slot.txt";
+      T_SAVE_US  : integer := 300;
+      N_INSTR    : integer := 2000;
+      SIMTIME_US : integer := 60000;
+      STALL_US   : integer := 40000
+   );
+end entity;
+
+architecture arch of tb_ss is
+
+   -- PLL aligned clocks: tick = 1/12 clk1x period
+   constant TICK              : time := 2461 ps;
+   signal clk1x               : std_logic := '0';
+   signal clk2x               : std_logic := '0';
+   signal clk3x               : std_logic := '0';
+   signal clkvid              : std_logic := '0';
+   signal reset               : std_logic := '1';
+   signal done_sim            : boolean := false;
+
+   signal TURBO_MEM           : std_logic := '1';
+   signal TURBO_COMP          : std_logic := '1';
+   signal TURBO_CACHE         : std_logic := '1';
+   signal TURBO_CACHE50       : std_logic := '0';
+
+   signal exp1_addr           : unsigned(22 downto 0);
+   signal exp1_read           : std_logic;
+   signal exp1_write          : std_logic;
+   signal exp1_dataWrite      : std_logic_vector(15 downto 0);
+   signal exp3_addr           : unsigned(20 downto 0);
+   signal exp3_read           : std_logic;
+   signal exp3_write          : std_logic;
+   signal exp3_dataWrite      : std_logic_vector(15 downto 0);
+
+   signal ram_refresh         : std_logic;
+   signal ram_dataWrite       : std_logic_vector(31 downto 0);
+   signal ram_dataRead32      : std_logic_vector(31 downto 0);
+   signal ram_Adr             : std_logic_vector(24 downto 0);
+   signal ram_cntDMA          : std_logic_vector(1 downto 0);
+   signal ram_be              : std_logic_vector(3 downto 0);
+   signal ram_rnw             : std_logic;
+   signal ram_ena             : std_logic;
+   signal ram_dma             : std_logic;
+   signal ram_cache           : std_logic;
+   signal ram_done            : std_logic;
+   signal ram_dmafifo_adr     : std_logic_vector(22 downto 0);
+   signal ram_dmafifo_data    : std_logic_vector(31 downto 0);
+   signal ram_dmafifo_empty   : std_logic;
+   signal ram_dmafifo_read    : std_logic;
+   signal cache_wr            : std_logic_vector(3 downto 0);
+   signal cache_data          : std_logic_vector(31 downto 0);
+   signal cache_addr          : std_logic_vector(7 downto 0);
+   signal dma_wr              : std_logic;
+   signal dma_reqprocessed    : std_logic;
+   signal dma_data            : std_logic_vector(31 downto 0);
+
+   signal DDRAM_BUSY          : std_logic := '0';
+   signal DDRAM_BURSTCNT      : std_logic_vector(7 downto 0);
+   signal DDRAM_ADDR          : std_logic_vector(28 downto 0);
+   signal DDRAM_DOUT          : std_logic_vector(63 downto 0) := (others => '0');
+   signal DDRAM_DOUT_READY    : std_logic := '0';
+   signal DDRAM_RD            : std_logic;
+   signal DDRAM_DIN           : std_logic_vector(63 downto 0);
+   signal DDRAM_BE            : std_logic_vector(7 downto 0);
+   signal DDRAM_WE            : std_logic;
+
+   -- savestate control
+   signal save_state          : std_logic := '0';
+   signal load_state          : std_logic := '0';
+   signal ss_slot             : integer range 0 to 3 := 0;
+   signal state_loaded        : std_logic;
+   signal ns10ss_active       : std_logic;
+   signal ns10ss_addr         : unsigned(19 downto 0);
+   signal ns10ss_din          : std_logic_vector(31 downto 0);
+   signal ns10ss_wren         : std_logic_vector(1 downto 0);
+   signal ns10ss_rden         : std_logic;
+   signal ns10ss_dout         : std_logic_vector(31 downto 0) := (others => '0');
+   signal ns10ss_done         : std_logic := '0';
+
+   -- NVRAM region: MEM(N) base beat 0x840, ROM byte 0 = DDR3 dword 0x1400000
+   constant NV_BEAT           : integer := 16#A00000# + 16#840#;   -- DDR3 beat
+   constant NVADDR            : std_logic_vector(25 downto 0) := std_logic_vector(to_unsigned(16#1400000# + 2 * 16#840#, 26));
+   constant NV_DWORDS         : integer := 4224;
+   constant B17_DWORDS        : integer := 9312;
+   constant SLOT_BEAT         : integer := 16#1800000#;            -- DDR3 0x3C000000 - 0x30000000, slot n at + n * 0x100000
+
+   -- test sequencing (control process -> models)
+   signal phase               : integer := 0;  -- 0 run, 1 saving, 2 trace A, 3 empty restore, 4 restoring, 5 trace B, 6 done
+   signal cmd_ddr             : integer := 0;  -- 1 pattern into VRAM rows 512+ / NVRAM region, 3 scramble, 4 slot 0 -> file, 5 file -> slot 1
+   signal cmd_ddr_ack         : integer := 0;
+   signal cmd_ns              : integer := 0;  -- 1 pattern, 3 scramble
+   signal cmd_ns_ack          : integer := 0;
+   signal save_done           : std_logic := '0';  -- slot 0 header written
+   signal ss_hdr_size         : std_logic_vector(31 downto 0) := (others => '0');
+   signal sum_saved           : std_logic_vector(95 downto 0) := (others => '0');  -- VRAM low, VRAM high, SPU DDR3
+   signal sum_loaded          : std_logic_vector(95 downto 0) := (others => '0');
+   signal sum_loaded_v        : std_logic := '0';
+   signal errors_ns           : integer := 0;
+   signal nv_writes           : integer := 0;
+   signal b17_writes          : integer := 0;
+
+   signal saw_reset           : boolean := false;  -- reset vector executed in phase 3
+   signal instr_count         : integer := 0;
+   signal last_instr          : time := 0 ns;
+
+   function pat(i : integer; k : integer) return std_logic_vector is
+      variable v : unsigned(31 downto 0);
+   begin
+      v := resize(to_unsigned(i, 32) * to_unsigned(16#9E37#, 16), 32) + to_unsigned(k, 32);
+      return std_logic_vector(v xor shift_left(to_unsigned(i, 32), 13));
+   end function;
+
+begin
+
+   -- 12 ticks per clk1x: clk1x / clk2x / clk3x rising edges coincide every clk1x period (PLL)
+   pclk : process
+      variable n : integer := 0;
+   begin
+      while not done_sim loop
+         if (n mod 6 = 0) then clk1x <= not clk1x; end if;
+         if (n mod 3 = 0) then clk2x <= not clk2x; end if;
+         if (n mod 2 = 0) then clk3x <= not clk3x; end if;
+         if (n mod 4 = 0) then clkvid <= not clkvid; end if;
+         n := (n + 1) mod 12;
+         wait for TICK;
+      end loop;
+      wait;
+   end process;
+
+   reset <= '0' after 5 us;
+
+   dut : entity work.psx_mister
+   generic map (is_simu => '1')
+   port map
+   (
+@PORTMAP@
+   );
+
+   isdram : entity work.sdram_model3x
+   generic map
+   (
+      DOREFRESH     => '1',
+      INITFILE      => BIOSFILE,
+      INITOFFSET    => 16#800000#,
+      SCRIPTLOADING => '0',
+      FILELOADING   => '1'
+   )
+   port map
+   (
+      clk               => clk1x,
+      clk3x             => clk3x,
+      refresh           => ram_refresh,
+      addr              => "00" & ram_Adr,
+      req               => ram_ena,
+      ram_dma           => ram_dma,
+      ram_dmacnt        => ram_cntDMA,
+      ram_iscache       => ram_cache,
+      rnw               => ram_rnw,
+      be                => ram_be,
+      di                => ram_dataWrite,
+      do                => open,
+      do32              => ram_dataRead32,
+      done              => ram_done,
+      cache_wr          => cache_wr,
+      cache_data        => cache_data,
+      cache_addr        => cache_addr,
+      dma_wr            => dma_wr,
+      dma_data          => dma_data,
+      reqprocessed      => dma_reqprocessed,
+      ram_idle          => open,
+      ram_dmafifo_adr   => ram_dmafifo_adr,
+      ram_dmafifo_data  => ram_dmafifo_data,
+      ram_dmafifo_empty => ram_dmafifo_empty,
+      ram_dmafifo_read  => ram_dmafifo_read
+   );
+
+   -- DDR3 model, fixed latency, bursts. Beat regions: 0x000000-0x1FFFFF (VRAM 0 / 0x100000, SPU RAM 0x60000),
+   -- 0xA00000-0xA0FFFF (ROM image start = NVRAM region), slots 0 and 1. Other addresses read 0.
+   pddr3 : process
+      type t_mem is array(natural range <>) of integer;
+      variable lo, hi     : t_mem(0 to 2**21 - 1) := (others => 0);
+      variable rlo, rhi   : t_mem(0 to 2**16 - 1) := (others => 0);
+      variable slo, shi   : t_mem(0 to 2**21 - 1) := (others => 0);
+      variable a, n, k    : integer;
+      variable w          : std_logic_vector(63 downto 0);
+      variable was_active : boolean := false;
+      file fs             : text;
+      variable l          : line;
+      variable ch         : character;
+      variable w20        : std_logic_vector(19 downto 0);
+      variable w96        : std_logic_vector(95 downto 0);
+
+      impure function rd(b : integer) return std_logic_vector is
+      begin
+         if (b < 2**21) then
+            return std_logic_vector(to_signed(hi(b), 32)) & std_logic_vector(to_signed(lo(b), 32));
+         elsif (b >= 16#A00000# and b < 16#A00000# + 2**16) then
+            return std_logic_vector(to_signed(rhi(b - 16#A00000#), 32)) & std_logic_vector(to_signed(rlo(b - 16#A00000#), 32));
+         elsif (b >= SLOT_BEAT and b < SLOT_BEAT + 2**21) then
+            return std_logic_vector(to_signed(shi(b - SLOT_BEAT), 32)) & std_logic_vector(to_signed(slo(b - SLOT_BEAT), 32));
+         end if;
+         return (63 downto 0 => '0');
+      end function;
+
+      procedure wr(b : integer; d : std_logic_vector(63 downto 0)) is
+      begin
+         if (b < 2**21) then
+            hi(b) := to_integer(signed(d(63 downto 32))); lo(b) := to_integer(signed(d(31 downto 0)));
+         elsif (b >= 16#A00000# and b < 16#A00000# + 2**16) then
+            rhi(b - 16#A00000#) := to_integer(signed(d(63 downto 32))); rlo(b - 16#A00000#) := to_integer(signed(d(31 downto 0)));
+         elsif (b >= SLOT_BEAT and b < SLOT_BEAT + 2**21) then
+            shi(b - SLOT_BEAT) := to_integer(signed(d(63 downto 32))); slo(b - SLOT_BEAT) := to_integer(signed(d(31 downto 0)));
+         end if;
+      end procedure;
+
+      -- checksums of the beats the sim savestate keeps (simpatch.py): VRAM rows 0-511, rows 512-1023, SPU RAM DDR3 part
+      type t_rng is array(0 to 5, 0 to 1) of integer;
+      constant KEPT : t_rng := ((0, 16#800#), (16#1F800#, 16#20000#), (16#100000#, 16#100800#), (16#11F800#, 16#120000#),
+                                (16#60200#, 16#60800#), (16#6BE00#, 16#6C000#));
+      impure function sums return std_logic_vector is
+         variable sm : unsigned(95 downto 0) := (others => '0');
+         variable d  : std_logic_vector(63 downto 0);
+         variable j  : integer;
+      begin
+         for r in 0 to 5 loop
+            j := (r / 2) * 32;
+            for i in KEPT(r, 0) to KEPT(r, 1) - 1 loop
+               d := rd(i);
+               sm(j + 31 downto j) := resize(sm(j + 31 downto j) * to_unsigned(16#01000193#, 32), 32) + unsigned(d(31 downto 0)) + unsigned(d(63 downto 32));
+            end loop;
+         end loop;
+         return std_logic_vector(sm);
+      end function;
+
+   begin
+      wait until rising_edge(clk2x);
+      if (cmd_ddr /= cmd_ddr_ack) then
+         case cmd_ddr is
+            when 1 =>  -- VRAM rows 512-1023 and the NVRAM region get a pattern (the BIOS draws only rows 0-511)
+               for i in 0 to 16#1FFFF# loop wr(16#100000# + i, pat(i, 1) & pat(i, 2)); end loop;
+               for i in 0 to NV_DWORDS / 2 - 1 loop wr(NV_BEAT + i, pat(i, 7) & pat(i, 6)); end loop;
+            when 4 =>  -- slot 0 -> file: non-zero beats, then the checksums of the saved memories
+               file_open(fs, SLOTFILE, write_mode);
+               for i in 0 to 16#FFFFF# loop
+                  w := rd(SLOT_BEAT + i);
+                  if (w /= (63 downto 0 => '0')) then
+                     write(l, to_hstring(to_unsigned(i, 20)) & " " & to_hstring(w)); writeline(fs, l);
+                  end if;
+               end loop;
+               write(l, "S " & to_hstring(sum_saved)); writeline(fs, l);
+               file_close(fs);
+            when 5 =>  -- file -> slot 1 (Main_MiSTer loads the state file into the slot)
+               file_open(fs, SLOTFILE, read_mode);
+               while not endfile(fs) loop
+                  readline(fs, l);
+                  if (l(1) = 'S') then
+                     read(l, ch); read(l, ch); hread(l, w96); sum_saved <= w96;
+                  else
+                     hread(l, w20); read(l, ch); hread(l, w);
+                     wr(SLOT_BEAT + 16#100000# + to_integer(unsigned(w20)), w);
+                  end if;
+               end loop;
+               file_close(fs);
+            when 3 =>  -- scramble what the restore must bring back (kept VRAM / SPU beats)
+               for r in 0 to 5 loop
+                  for i in KEPT(r, 0) to KEPT(r, 1) - 1 loop wr(i, pat(i, 11) & pat(i, 12)); end loop;
+               end loop;
+               for i in 0 to NV_DWORDS / 2 - 1 loop wr(NV_BEAT + i, (63 downto 0 => '0')); end loop;
+            when others => null;
+         end case;
+         cmd_ddr_ack <= cmd_ddr;
+      end if;
+      -- after the last restore write (type 18), not at the end of the header check (also holds DDR3)
+      if (phase = 4 and was_active and ns10ss_active = '0' and sum_loaded_v = '0' and nv_writes = NV_DWORDS) then
+         sum_loaded   <= sums;
+         sum_loaded_v <= '1';
+      end if;
+      was_active := (ns10ss_active = '1');
+      if (DDRAM_RD = '1') then
+         a := to_integer(unsigned(DDRAM_ADDR(24 downto 0)));
+         n := to_integer(unsigned(DDRAM_BURSTCNT));
+         DDRAM_BUSY <= '1';
+         for i in 1 to 12 loop wait until rising_edge(clk2x); end loop;
+         for i in 0 to n - 1 loop
+            DDRAM_DOUT       <= rd(a + i);
+            DDRAM_DOUT_READY <= '1';
+            wait until rising_edge(clk2x);
+         end loop;
+         DDRAM_DOUT_READY <= '0';
+         DDRAM_BUSY       <= '0';
+      elsif (DDRAM_WE = '1') then
+         a := to_integer(unsigned(DDRAM_ADDR(24 downto 0)));
+         n := to_integer(unsigned(DDRAM_BURSTCNT));
+         k := 0;
+         loop
+            w := rd(a + k);
+            for b in 0 to 7 loop
+               if (DDRAM_BE(b) = '1') then w(b * 8 + 7 downto b * 8) := DDRAM_DIN(b * 8 + 7 downto b * 8); end if;
+            end loop;
+            wr(a + k, w);
+            if (a + k = SLOT_BEAT and phase = 1) then   -- slot 0 header: the last write of a save
+               ss_hdr_size <= DDRAM_DIN(63 downto 32);
+               sum_saved   <= sums;
+               save_done   <= '1';
+            end if;
+            k := k + 1;
+            exit when k >= n;
+            loop
+               wait until rising_edge(clk2x);
+               exit when DDRAM_WE = '1';
+            end loop;
+         end loop;
+      end if;
+   end process;
+
+   -- NS10 board savestate client: type 17 = 9312 dwords (read one clk1x after the address, as on HW),
+   -- type 18 = NVRAM region writes (taken after a few clocks, like the ROM cache)
+   pns10 : process
+      type t_mem is array(0 to B17_DWORDS - 1) of std_logic_vector(31 downto 0);
+      variable m17   : t_mem := (others => (others => '0'));
+      variable nvw   : integer := 0;
+      variable delay : integer := 0;
+      variable errs  : integer := 0;
+      variable a     : integer;
+      variable cnt17 : integer := 0;
+      variable cntnv : integer := 0;
+   begin
+      wait until rising_edge(clk1x);
+      ns10ss_done <= '0';
+      a := to_integer(ns10ss_addr);
+      if (a < B17_DWORDS) then ns10ss_dout <= m17(a); else ns10ss_dout <= (others => '0'); end if;
+      if (cmd_ns /= cmd_ns_ack) then
+         for i in 0 to B17_DWORDS - 1 loop
+            if (cmd_ns = 1) then m17(i) := pat(i, 3); else m17(i) := pat(i, 99); end if;
+         end loop;
+         cmd_ns_ack <= cmd_ns;
+      end if;
+      if (ns10ss_wren(0) = '1') then
+         if (a < B17_DWORDS) then m17(a) := ns10ss_din; end if;
+         if (ns10ss_din /= pat(a, 3)) then
+            if (errs < 10) then report "type 17 dword " & integer'image(a) & " = " & to_hstring(ns10ss_din) & " expected " & to_hstring(pat(a, 3)) severity error; end if;
+            errs := errs + 1;
+         end if;
+         cnt17 := cnt17 + 1;
+         ns10ss_done <= '1';
+      end if;
+      if (ns10ss_wren(1) = '1') then
+         -- saved from the DDR3 region: beat i = pat(i, 7) & pat(i, 6), low dword first
+         if ((a mod 2 = 0 and ns10ss_din /= pat(a / 2, 6)) or (a mod 2 = 1 and ns10ss_din /= pat(a / 2, 7))) then
+            if (errs < 10) then report "type 18 dword " & integer'image(a) & " = " & to_hstring(ns10ss_din) severity error; end if;
+            errs := errs + 1;
+         end if;
+         cntnv := cntnv + 1;
+         delay := 3;
+      end if;
+      if (delay > 0) then
+         delay := delay - 1;
+         if (delay = 0) then ns10ss_done <= '1'; end if;
+      end if;
+      errors_ns  <= errs;
+      b17_writes <= cnt17;
+      nv_writes  <= cntnv;
+   end process;
+
+   -- test sequence
+   pctl : process
+      variable l : line;
+      procedure pulse(signal s : out std_logic) is
+      begin
+         wait until rising_edge(clk1x); s <= '1';
+         for i in 1 to 20 loop wait until rising_edge(clk1x); end loop;
+         s <= '0';
+      end procedure;
+      procedure fail(msg : string) is
+      begin
+         report "FAIL: " & msg severity error;
+         done_sim <= true;
+         wait;
+      end procedure;
+      variable t0, c0 : integer;
+   begin
+      wait until rising_edge(clk1x);
+      cmd_ns <= 1; cmd_ddr <= 1;
+      wait for T_SAVE_US * 1 us - now;
+
+      if (MODE = "save") then
+         phase <= 1; ss_slot <= 0;
+         pulse(save_state);
+         t0 := now / 1 us;
+         while save_done = '0' loop
+            wait until rising_edge(clk1x);
+            if (now / 1 us > t0 + 40000) then fail("save did not finish"); end if;
+         end loop;
+         report "save done at " & time'image(now) & ", header size " & to_hstring(ss_hdr_size) & ", sums " & to_hstring(sum_saved) severity note;
+         if (to_integer(unsigned(ss_hdr_size)) /= 1835006) then fail("slot header size " & to_hstring(ss_hdr_size)); end if;
+         phase <= 2;
+         c0 := instr_count;
+         while instr_count < c0 + N_INSTR loop wait until rising_edge(clk1x); end loop;
+         report "trace A done at " & time'image(now) severity note;
+         cmd_ddr <= 4; wait until cmd_ddr_ack = 4;
+         report "PASS (save)" severity note;
+
+      elsif (MODE = "load") then
+         cmd_ddr <= 5; wait until cmd_ddr_ack = 5;
+         cmd_ddr <= 3; wait until cmd_ddr_ack = 3;
+         cmd_ns  <= 3; wait until cmd_ns_ack = 3;
+         phase <= 4; ss_slot <= 1;
+         pulse(load_state);
+         t0 := now / 1 us;
+         while state_loaded /= '1' loop
+            wait until rising_edge(clk1x);
+            if (now / 1 us > t0 + 40000) then fail("restore did not finish"); end if;
+         end loop;
+         report "restore done at " & time'image(now) severity note;
+         phase <= 5;
+         c0 := instr_count;
+         while instr_count < c0 + N_INSTR loop wait until rising_edge(clk1x); end loop;
+         wait until rising_edge(clk1x);
+         report "type 17 writes " & integer'image(b17_writes) & ", NVRAM writes " & integer'image(nv_writes) & ", errors " & integer'image(errors_ns) severity note;
+         report "sums saved " & to_hstring(sum_saved) & " restored " & to_hstring(sum_loaded) severity note;
+         if (b17_writes /= B17_DWORDS) then fail("type 17 write count"); end if;
+         if (nv_writes /= NV_DWORDS) then fail("type 18 write count"); end if;
+         if (errors_ns /= 0) then fail("NS10 board state mismatch"); end if;
+         if (sum_saved /= sum_loaded) then fail("VRAM / SPU RAM checksum mismatch"); end if;
+         report "PASS (load)" severity note;
+
+      else
+         phase <= 3; ss_slot <= 2;
+         pulse(load_state);
+         c0 := instr_count;
+         t0 := now / 1 us;
+         while instr_count < c0 + 300 loop
+            wait until rising_edge(clk1x);
+            if (now / 1 us > t0 + STALL_US) then fail("CPU stopped after the empty slot restore"); end if;
+            if (state_loaded = '1') then fail("empty slot was loaded"); end if;
+         end loop;
+         if (saw_reset) then fail("reset after the empty slot restore"); end if;
+         if (b17_writes /= 0 or nv_writes /= 0) then fail("NS10 board state written"); end if;
+         report "PASS (empty): restore ignored, CPU running at " & time'image(now) severity note;
+      end if;
+      phase <= 6;
+      done_sim <= true;
+      wait;
+   end process;
+
+   -- watchdog: simulation time and CPU stall outside a savestate
+   pwatch : process
+      variable t_ok : time := 0 ns;   -- last instruction, or last clock with a savestate running
+   begin
+      wait until rising_edge(clk1x);
+      if (ns10ss_active = '1' or phase = 1 or phase = 4 or last_instr > t_ok) then t_ok := now; end if;
+      if (now > SIMTIME_US * 1 us) then
+         report "FAIL: simulation time limit, phase " & integer'image(phase) severity error;
+         std.env.stop(1);
+      end if;
+      if (now > 50 us and now - t_ok > STALL_US * 1 us) then
+         report "FAIL: no instruction for " & integer'image(STALL_US) & " us, phase " & integer'image(phase) severity error;
+         std.env.stop(1);
+      end if;
+   end process;
+
+   -- instruction traces after the save (A) and after the restore (B)
+   ptrace : process
+      alias cpu_done   is tb_cpu_done;    -- package signals in the sim copy of export.vhd, driven by psx_top (run.sh)
+      alias cpu_export is tb_cpu_export;
+      file fa, fb     : text;
+      variable l      : line;
+      variable sum    : unsigned(31 downto 0);
+      variable na, nb : integer := 0;
+   begin
+      file_open(fa, OUTNAME & "_a.txt", write_mode);
+      file_open(fb, OUTNAME & "_b.txt", write_mode);
+      while not done_sim loop
+         wait until rising_edge(clk1x);
+         if (cpu_done = '1') then
+            instr_count <= instr_count + 1;
+            last_instr  <= now;
+            sum := (others => '0');
+            for i in 1 to 31 loop sum := sum + cpu_export.regs(i); end loop;
+            if (phase = 3 and cpu_export.pc = x"BFC00000") then saw_reset <= true; end if;
+            if (phase = 2 and na < N_INSTR) then
+               write(l, to_hstring(cpu_export.pc) & " " & to_hstring(cpu_export.opcode) & " " & to_hstring(sum) & " " & to_hstring(cpu_export.cause) & " " & integer'image(now / 1 ns));
+               writeline(fa, l);
+               na := na + 1;
+            elsif (phase = 5 and nb < N_INSTR) then
+               write(l, to_hstring(cpu_export.pc) & " " & to_hstring(cpu_export.opcode) & " " & to_hstring(sum) & " " & to_hstring(cpu_export.cause) & " " & integer'image(now / 1 ns));
+               writeline(fb, l);
+               nb := nb + 1;
+            end if;
+         end if;
+      end loop;
+      file_close(fa);
+      file_close(fb);
+      wait;
+   end process;
+
+   -- progress
+   pprog : process
+   begin
+      wait for 100 us;
+      report "t=" & time'image(now) & " phase " & integer'image(phase) & " instr " & integer'image(instr_count) severity note;
+      if (done_sim) then wait; end if;
+   end process;
+
+end architecture;

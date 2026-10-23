@@ -7,7 +7,7 @@
 //  0x002-003  data xor
 //  0x004-013  unscramble order, MAME bitswap<16> argument order
 //  0x014      decrypter type (0 none, 1 type 1, 2 type 2)
-//  0x015      flags: bit 0 = iv table present
+//  0x015      flags: bit 0 = iv table present, bit 1 = Button2 is Drill (Auto) (Driller sets)
 //  0x016-017  type 2 xmask
 //  0x018-019  type 2 nonlinear output mask C
 //  0x01A      NAND ID byte 1
@@ -35,6 +35,7 @@ module ns10_cfg
 	output reg  [7:0] nand_id1,
 	output reg [25:0] nand_stride,
 	output reg [16:0] nand_pages,
+	output reg        af_b2,
 
 	output reg        ivtab_we,
 	output reg  [3:0] ivtab_addr,
@@ -54,7 +55,7 @@ always @(posedge clk) begin
 		case (addr)
 			9'h000: begin board_type <= data[1:0]; nand_count <= data[11:8]; end
 			9'h002: data_xor <= data;
-			9'h014: begin dec_type <= data[1:0]; use_ivtab <= data[8]; end
+			9'h014: begin dec_type <= data[1:0]; use_ivtab <= data[8]; af_b2 <= data[9]; end
 			9'h016: xmask  <= data;
 			9'h018: nlmask <= data;
 			9'h01A: nand_id1 <= data[7:0];

@@ -79,6 +79,8 @@ def blob(name):
         for i, (c, p) in enumerate(rows):
             b[0x40 + 12 * i:0x40 + 12 * i + 6] = c.to_bytes(6, "little")
             b[0x46 + 12 * i:0x46 + 12 * i + 6] = p.to_bytes(6, "little")
+    if name.startswith("mrdrilr"):
+        b[0x15] |= 2   # Button2 = Drill (Auto), rtl/ns10/ns10_autofire.sv
     if g["board"] == 1:
         b[0x1A] = g["nand_id1"]
         struct.pack_into("<I", b, 0x1C, g["nand_size"])

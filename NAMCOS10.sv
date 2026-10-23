@@ -21,7 +21,7 @@
 //
 //  Loading (MRA):
 //    ioctl index 0: ROM image -> DDR3 0x35000000 (tools/ns10cfg.py rom_image layout; the PSX
-//    GPU uses 0x30000000-0x343FFFFF, savestates 0x3E000000)
+//    GPU uses 0x30000000-0x343FFFFF, savestates 4 x 8 MB at 0x3C000000)
 //    ioctl index 1: config blob (tools/ns10cfg.py blob, rtl/ns10/ns10_cfg.sv)
 //  After both, the ROM board builds the 4 MB BIOS image in SDRAM 0x800000
 //  (CPU 0x1FC00000) and the CPU leaves reset.
@@ -117,10 +117,11 @@ wire reset_or = RESET | buttons[1] | status[0] | rom_download | cfg_download | n
 // 0         1         2         3          4         5         6          7         8         9
 // 01234567890123456789012345678901 23456789012345678901234567890123 45678901234567890123456789012345
 // 0123456789ABCDEFGHIJKLMNOPQRSTUV 0123456789ABCDEFGHIJKLMNOPQRSTUV
-// X      XX                        XXXX     X                      X                XXXXXX  X
+// X      XX        XXXXXX          XXXX     X                      X                XXXXXXX X
+// 17..22: savestates (save, restore, slot, autoincrement, to SD card)
 // 96..104: Test switch, DIP SW1; 105..120: CRT Adjust (on, H-Size, H-Position, V-Position)
-// 81..86, 89: debug build only (NS10_DEBUG, revision NAMCOS10); the release revision NAMCOS10_release
-//         runs them at their defaults (Turbo High, Cache Full, Interlace Drawing PSX, Field Lock On, ROM Bus Wait MAME)
+// 81..87, 89: debug build only (NS10_DEBUG, revision NAMCOS10); the release revision NAMCOS10_release
+//         runs them at their defaults (Turbo High, Cache Full, Interlace Drawing PSX, Field Lock On, ROM Bus Wait MAME, IRQ10 2xVBlank)
 
 `ifdef NS10_DEBUG
 localparam [0:0] DEBUG = 1;
@@ -130,7 +131,7 @@ localparam [0:0] DEBUG = 0;
 
 `include "build_id.v"
 parameter CONF_STR = {
-	"SYSTEM10;;",
+	"SYSTEM10;SS3C000000:800000;",
 	"-;",
 	"P1,Video & Audio;",
 	"P1-;",
@@ -156,6 +157,12 @@ parameter CONF_STR = {
 	"H1P3O[115:111],CRT H-Position,0,+1,+2,+3,+4,+5,+6,+7,+8,+9,+10,+11,+12,+13,+14,+15,-16,-15,-14,-13,-12,-11,-10,-9,-8,-7,-6,-5,-4,-3,-2,-1;",
 	"H1P3O[120:116],CRT V-Position,0,+1,+2,+3,+4,+5,+6,+7,+8,+9,+10,+11,+12,+13,+14,+15,-16,-15,-14,-13,-12,-11,-10,-9,-8,-7,-6,-5,-4,-3,-2,-1;",
 	"-;",
+	"O[22],Savestates to SDCard,On,Off;",
+	"O[21],Autoincrement Slot,Off,On;",
+	"O[20:19],Savestate Slot,1,2,3,4;",
+	"R[17],Save state (Alt-F1);",
+	"R[18],Restore state (F1);",
+	"-;",
 `ifdef NS10_DEBUG
 	"O[82:81],CPU Turbo,High,Medium,Low,Off;",
 	"O[83],Turbo Cache (High),Full,Half;",  // Half: slight stage 13 stutter (Full scene cut glitch fixed in cpu.vhd, VSync timeout)
@@ -163,12 +170,29 @@ parameter CONF_STR = {
 	"T[85],Trace GPU 10 s;",                        // debug: rtl/ns10/ns10_gtrace.sv, tools/gputrace.py
 	"O[86],Interlace Field Lock,On,Off;",           // GPU 1.5x slower than NS10: overrunning frame keeps its field (startrgn / gamshara)
 	"O[89],ROM Bus Wait,MAME,PSX;",                  // PSX: EXP1 memctrl delays as on a PSX (A/B test of the mrdrilr2j scene load stutter)
+	"O[87],IRQ10 (Input),2xVBlank,100Hz;",          // 2xVBlank: Driller games read input once per frame (Drill (Auto) 30/s); 100Hz = MAME
+	"-;",
 `endif
 	"O[64],Pause when OSD is open,Off,On;",
 	"-;",
 	"R0,Reset;",
-	"J1,Button1,Button2,Button3,Button4,Button5,Button6,Start,Coin,Pause,Service;",
+	"J1,Button1,Button2,Button3,Button4,Button5,Button6,Start,Coin,Pause,Service,-,Savestates;",  // Driller MRAs: Button2 = "Drill (Auto)" (config flag)
 	"jn,A,B,X,Y,L,R,Start,Select,L3,R3;",
+	"I,",                                            // savestate_ui ss_info 1..14
+	"Load=DPAD Up|Save=Down|Slot=Left/Right,",
+	"Active Slot 1,",
+	"Active Slot 2,",
+	"Active Slot 3,",
+	"Active Slot 4,",
+	"Save to state 1,",
+	"Restore state 1,",
+	"Save to state 2,",
+	"Restore state 2,",
+	"Save to state 3,",
+	"Restore state 3,",
+	"Save to state 4,",
+	"Restore state 4,",
+	"Rewinding...;",
 	"V,v",`BUILD_DATE
 };
 
@@ -185,8 +209,16 @@ wire        ioctl_upload;
 wire        nv_save_req;
 wire [15:0] nv_up_data;
 
-wire [31:0] joy;
+wire [31:0] joy_unmod;
 wire [31:0] joy2;
+wire [10:0] ps2_key;
+
+wire  [1:0] ss_slot;
+wire  [7:0] ss_info;
+wire        ss_save, ss_load, ss_info_req, ss_status_set;
+
+// P1 "Savestates" held (bit 15): the pad drives the savestate combos, not the game
+wire [31:0] joy = joy_unmod[15] ? 32'd0 : joy_unmod;
 
 wire [21:0] gamma_bus;
 wire        DIRECT_VIDEO;
@@ -200,14 +232,16 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1)) hps_io
 	.buttons(buttons),
 	.forced_scandoubler(forced_scandoubler),
 
-	.joystick_0(joy),
+	.joystick_0(joy_unmod),
 	.joystick_1(joy2),
+	.ps2_key(ps2_key),
 
 	.status(status),
-	.status_in(128'd0),
-	.status_set(1'b0),
+	.status_in({status[127:21], ss_slot, 2'b00, status[16:0]}),
+	.status_set(ss_status_set),
 	.status_menumask({14'd0, ~status[105], 1'b0}),   // H1: CRT Adjust values hidden while CRT Adjust is Off
-	.info_req(1'b0),
+	.info_req(ss_info_req),
+	.info(ss_info),
 
 	.ioctl_addr(ioctl_addr),
 	.ioctl_dout(ioctl_dout),
@@ -323,6 +357,35 @@ wire [1:0] turbo = DEBUG ? ~status[82:81] : 2'b11;  // status 0 High, 1 Medium, 
 
 wire cpu_reset = reset | need_boot | boot_start | boot_busy | need_nvl | nvl_start | nvl_busy | ~(rom_loaded & cfg_loaded);
 
+////////////////////////////  SAVESTATES  ///////////////////////////////
+// PSX core savestates (rtl/savestates.vhd) plus the NS10 board state (types 17 / 18, below).
+// Keyboard Alt-F1..F4 save, F1..F4 restore; pad: hold Savestates, Down save, Up restore, Left / Right slot.
+// A restore of a slot the core has not seen yet (state file loaded by Main_MiSTer) checks the header first.
+savestate_ui #(.INFO_TIMEOUT_BITS(25)) savestate_ui
+(
+	.clk            (clk_1x),
+	.ps2_key        (ps2_key),
+	.allow_ss       (rom_loaded & cfg_loaded & ~cpu_reset),
+	.joySS          (joy_unmod[15]),
+	.joyRight       (joy_unmod[0]),
+	.joyLeft        (joy_unmod[1]),
+	.joyDown        (joy_unmod[2]),
+	.joyUp          (joy_unmod[3]),
+	.joyStart       (1'b0),
+	.joyRewind      (1'b0),
+	.rewindEnable   (1'b0),
+	.status_slot    (status[20:19]),
+	.autoincslot    (status[21]),
+	.OSD_saveload   (status[18:17]),
+	.validSStates   (4'b1111),
+	.ss_save        (ss_save),
+	.ss_load        (ss_load),
+	.ss_info_req    (ss_info_req),
+	.ss_info        (ss_info),
+	.statusUpdate   (ss_status_set),
+	.selected_slot  (ss_slot)
+);
+
 // debug: load timing probe "LOAD" (tools/ns10trace.py load): index 0 download time and ioctl words
 // (0 words = DDR3 fast load), settings rebuild and ROM end -> CPU start times, .nvm loaded
 reg  [35:0] ld_rom_t = 0;        // clk_1x while the index 0 download runs
@@ -356,7 +419,7 @@ wire  [1:0] board_type, dec_type;
 wire  [3:0] nand_count;
 wire [15:0] data_xor, xmask, nlmask, ivtab_data;
 wire [63:0] unscramble_map;
-wire        use_ivtab, ivtab_we, row_we;
+wire        use_ivtab, ivtab_we, row_we, af_b2;
 wire  [7:0] nand_id1;
 wire [25:0] nand_stride;
 wire [16:0] nand_pages;
@@ -369,7 +432,7 @@ ns10_cfg ns10_cfg
 	.clk(clk_1x), .wr(cfg_download & ioctl_wr), .addr(ioctl_addr[8:0]), .data(ioctl_dout),
 	.board_type(board_type), .nand_count(nand_count), .data_xor(data_xor), .unscramble_map(unscramble_map),
 	.dec_type(dec_type), .use_ivtab(use_ivtab), .xmask(xmask), .nlmask(nlmask), .nand_id1(nand_id1),
-	.nand_stride(nand_stride), .nand_pages(nand_pages),
+	.nand_stride(nand_stride), .nand_pages(nand_pages), .af_b2(af_b2),
 	.ivtab_we(ivtab_we), .ivtab_addr(ivtab_addr), .ivtab_data(ivtab_data),
 	.row_we(row_we), .row_addr(row_addr), .row_data(row_data)
 );
@@ -385,25 +448,56 @@ wire        dbg_io_write;
 wire [13:0] dbg_io_addr;
 wire [15:0] dbg_io_data;
 wire        irq10;
+wire        vblank_irq;
 
 wire        bank_rd, bank_wr;
 wire [15:0] bank_off;
+
+// Drill (Auto): Driller MRAs (config flag af_b2) take Button2 (joy bit 5) as 25/s autofire synced to the
+// game's IN1 low reads, ORed into Button1; Button2 then does not reach IN1. Key mapping order Drill, Drill (Auto).
+wire [1:0] af_fire;
+
+ns10_autofire ns10_autofire
+(
+	.clk(clk_1x), .reset(cpu_reset),
+	.in_rd(exp3_read && exp3_addr[20:1] == 20'hD0002),   // 0x1FBA0004
+	.osd(OSD_STATUS),
+	.btn({joy2[5], joy[5]} & {2{af_b2}}),
+	.fire(af_fire)
+);
 
 // MAME IN1, active low
 wire [31:0] in1 = ~{
 	joy[13] | joy2[13],  status[96],  joy[11], joy2[11],  4'd0,
 	joy2[9], joy2[8], joy2[7], 1'b0,  joy[9], joy[8], joy[7], 1'b0,
-	joy2[10], joy2[6:4], joy2[3:0],
-	joy[10],  joy[6:4],  joy[3:0]
+	joy2[10], joy2[6], joy2[5] & ~af_b2, joy2[4] | af_fire[1], joy2[3:0],
+	joy[10],  joy[6],  joy[5] & ~af_b2,  joy[4] | af_fire[0],  joy[3:0]
 };
+
+// savestate bus from psx_top (clk_1x): type 17 dword index 0x0000-0x241F ROM board, 0x2440-0x2444 decrypter,
+// 0x2450-0x2453 I/O; type 18 = NVRAM region, written beat by beat through the ROM cache
+wire        ss_active2x;
+wire [19:0] ss_addr;
+wire [31:0] ss_din, ss_rb_dout, ss_cr_dout, ss_io_dout;
+wire  [1:0] ss_wren;
+wire        ss_loaded;
+reg         ss_active = 0;
+always @(posedge clk_1x) ss_active <= ss_active2x;
+
+wire        ss_wr_cr = ss_wren[0] && (ss_addr[13:4] == 10'h244);
+wire        ss_wr_io = ss_wren[0] && (ss_addr[13:4] == 10'h245);
+reg   [1:0] ss_sel;          // read mux of the previous clock's address
+always @(posedge clk_1x) ss_sel <= (ss_addr[13:4] == 10'h244) ? 2'd1 : (ss_addr[13:4] == 10'h245) ? 2'd2 : 2'd0;
+wire [31:0] ss_dout = (ss_sel == 2'd1) ? ss_cr_dout : (ss_sel == 2'd2) ? ss_io_dout : ss_rb_dout;
 
 ns10_io ns10_io
 (
 	.clk(clk_1x), .reset(cpu_reset),
 	.rd(exp3_read), .wr(exp3_write), .addr(exp3_addr), .wdata(exp3_dataWrite), .rdata(exp3_dataRead),
 	.dip({status[97], status[98], status[99], status[100], status[101], status[102], status[103], status[104]}),
-	.in1(in1), .irq10(irq10),
-	.bank_rd(bank_rd), .bank_wr(bank_wr), .bank_off(bank_off)
+	.in1(in1), .irq10_vbl(!DEBUG || !status[87]), .vblank(vblank_irq), .irq10(irq10),
+	.bank_rd(bank_rd), .bank_wr(bank_wr), .bank_off(bank_off),
+	.ss_addr(ss_addr[1:0]), .ss_din(ss_din), .ss_wr(ss_wr_io), .ss_dout(ss_io_dout)
 );
 
 wire        sw_we, c_active, c_busy, c_req;
@@ -418,7 +512,8 @@ ns10_crypt ns10_crypt
 	.row_we(row_we), .row_addr(row_addr), .row_data(row_data),
 	.switch_we(sw_we), .switch_data(sw_data), .active(c_active),
 	.dec_req(c_req), .dec_in(c_in), .dec_out(c_out), .busy(c_busy),
-	.us_in(us_in), .us_out(us_out)
+	.us_in(us_in), .us_out(us_out),
+	.ss_addr(ss_addr[2:0]), .ss_din(ss_din), .ss_wr(ss_wr_cr), .ss_dout(ss_cr_dout)
 );
 
 wire        rb_rd, rb_wr, rq_busy, rq_valid;
@@ -441,7 +536,8 @@ ns10_romboard ns10_romboard
 	.rq_rd(rb_rd), .rq_wr(rb_wr), .rq_beat(rb_beat), .rq_wdata(rb_wdata), .rq_be(rb_be),
 	.rq_busy(rq_busy), .rq_valid(rq_valid), .rq_data(rq_data),
 	.boot_start(boot_start), .boot_busy(boot_busy),
-	.bw_req(bw_req), .bw_addr(bw_addr), .bw_data(bw_data), .bw_done(sdramCh3_done)
+	.bw_req(bw_req), .bw_addr(bw_addr), .bw_data(bw_data), .bw_done(sdramCh3_done),
+	.ss_active(ss_active), .ss_addr(ss_addr[13:0]), .ss_din(ss_din), .ss_wr(ss_wren[0]), .ss_dout(ss_rb_dout)
 );
 
 wire        nvl_rd, nvl_wr;
@@ -457,12 +553,37 @@ ns10_nvload ns10_nvload
 	.rq_busy(rq_busy), .rq_valid(rq_valid), .rq_data(rq_data)
 );
 
+// savestate load of the NVRAM region (type 18): two dwords per beat, written through the ROM cache
+// (DDR3 ROM image + ns10_nvram BRAM; counts as a game write -> the .nvm follows at the next OSD open)
+reg         ss_nv_wr = 0, ss_nv_wait = 0, ss_done = 0;
+reg  [31:0] ss_nv_lo;
+reg  [22:0] ss_nv_beat;
+always @(posedge clk_1x) begin
+	ss_nv_wr <= 0;
+	ss_done  <= 0;
+	if (ss_wren[1]) begin
+		if (!ss_addr[0]) begin
+			ss_nv_lo <= ss_din;
+			ss_done  <= 1;
+		end else begin
+			ss_nv_wr   <= 1;
+			ss_nv_beat <= nv_base + ss_addr[13:1];
+			ss_nv_wait <= 1;
+		end
+	end
+	if (ss_wren[0]) ss_done <= 1;
+	if (ss_nv_wait & ~ss_nv_wr & ~rq_busy) begin
+		ss_nv_wait <= 0;
+		ss_done    <= 1;
+	end
+end
+
 wire        dl_mode  = rom_download | nv_download;
 wire        nvl_mode = nvl_start | nvl_busy;
-wire        rq_wr    = dl_mode ? dl_wr : nvl_mode ? nvl_wr : rb_wr;
-wire [22:0] rq_beat  = dl_mode ? dl_beat : nvl_mode ? nvl_beat : rb_beat;
-wire [63:0] rq_wdata = dl_mode ? dl_data : nvl_mode ? nvl_wdata : rb_wdata;
-wire  [7:0] rq_be    = (dl_mode | nvl_mode) ? 8'hFF : rb_be;
+wire        rq_wr    = dl_mode ? dl_wr : nvl_mode ? nvl_wr : ss_active ? ss_nv_wr : rb_wr;
+wire [22:0] rq_beat  = dl_mode ? dl_beat : nvl_mode ? nvl_beat : ss_active ? ss_nv_beat : rb_beat;
+wire [63:0] rq_wdata = dl_mode ? dl_data : nvl_mode ? nvl_wdata : ss_active ? {ss_din, ss_nv_lo} : rb_wdata;
+wire  [7:0] rq_be    = (dl_mode | nvl_mode | ss_active) ? 8'hFF : rb_be;
 
 // settings NVRAM: BRAM copy of the region for the HPS save
 wire        nv_hit;
@@ -483,8 +604,8 @@ wire  [7:0] cl_be;
 
 ns10_romcache ns10_romcache
 (
-	.clk1x(clk_1x), .clk2x(clk_2x), .reset(1'b0), .inval(rom_end), .ddr_base(29'h06A00000),
-	.rq_rd(dl_mode ? 1'b0 : nvl_mode ? nvl_rd : rb_rd),
+	.clk1x(clk_1x), .clk2x(clk_2x), .reset(1'b0), .inval(rom_end | ss_loaded), .ddr_base(29'h06A00000),
+	.rq_rd(dl_mode ? 1'b0 : nvl_mode ? nvl_rd : ss_active ? 1'b0 : rb_rd),
 	.rq_wr(rq_wr),
 	.rq_beat(rq_beat),
 	.rq_wdata(rq_wdata),
@@ -626,6 +747,7 @@ psx
    .dbg_gpu(dbg_gpu),
    .dbg_bus(dbg_bus),
    .irq10(irq10),
+   .vblank_irq(vblank_irq),
    // RAM/BIOS interface
    .biosregion(2'b00),
    .ram_refresh(sdr_refresh),
@@ -819,14 +941,23 @@ psx
 	.sound_out_left(AUDIO_L),
 	.sound_out_right(AUDIO_R),
    //savestates
-   .increaseSSHeaderCount (0),
-   .save_state            (0),
-   .load_state            (0),
-   .savestate_number      (0),
-   .state_loaded          (),
+   .increaseSSHeaderCount (~status[22]),   // Savestates to SDCard On: Main_MiSTer writes the slot file
+   .save_state            (ss_save),
+   .load_state            (ss_load),
+   .savestate_number      (ss_slot),
+   .state_loaded          (ss_loaded),
    .validSStates          (),
    .rewind_on             (0),
    .rewind_active         (0),
+   .ns10ss_active         (ss_active2x),
+   .ns10ss_idle           (~exp1_wait & ~c_busy & ~boot_busy & ~nvl_busy & ~rq_busy & ~ss_nv_wait),
+   .ns10ss_addr           (ss_addr),
+   .ns10ss_din            (ss_din),
+   .ns10ss_wren           (ss_wren),
+   .ns10ss_rden           (),
+   .ns10ss_dout           (ss_dout),
+   .ns10ss_done           (ss_done),
+   .ns10ss_nvaddr         (26'h1400000 + {2'd0, nv_base, 1'b0}),   // ROM byte 0 = DDR3 0x35000000
    //cheats
    .cheat_clear(0),
    .cheats_enabled(0),

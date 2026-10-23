@@ -4,10 +4,12 @@ set_global_assignment -name QIP_FILE rtl/pll2.qip
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/sdram.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/ddram.sv
 set_global_assignment -name VERILOG_FILE rtl/hps_ext.v
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/savestate_ui.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/crt_hsize.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/crt_sync.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/ns10/ns10_cfg.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/ns10/ns10_io.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/ns10/ns10_autofire.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/ns10/ns10_crypt.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/ns10/ns10_gtrace.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/ns10/ns10_nvram.sv

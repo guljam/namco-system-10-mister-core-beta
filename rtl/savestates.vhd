@@ -6,7 +6,7 @@ entity savestates is
    generic 
    (
       FASTSIM                : std_logic;
-      SAVETYPESCOUNT         : integer := 17;
+      SAVETYPESCOUNT         : integer := 19;
       Softmap_SaveState_ADDR : integer
    );
    port 
@@ -40,7 +40,7 @@ entity savestates is
       useSPUSDRAM             : in  std_logic;
             
       SS_DataWrite            : out std_logic_vector(31 downto 0) := (others => '0');
-      SS_Adr                  : out unsigned(18 downto 0) := (others => '0');
+      SS_Adr                  : out unsigned(19 downto 0) := (others => '0');
       SS_wren                 : out std_logic_vector(SAVETYPESCOUNT - 1 downto 0);
       SS_rden                 : out std_logic_vector(SAVETYPESCOUNT - 1 downto 0);
       SS_DataRead_CPU         : in  std_logic_vector(31 downto 0) := (others => '0');
@@ -57,6 +57,10 @@ entity savestates is
       SS_DataRead_SIO         : in  std_logic_vector(31 downto 0) := (others => '0');
       SS_DataRead_SCP         : in  std_logic_vector(31 downto 0) := (others => '0');
       SS_DataRead_CD          : in  std_logic_vector(31 downto 0) := (others => '0');
+      -- NS10: board state outside psx_top (type 17 read / write, type 18 NVRAM region write, through NAMCOS10.sv)
+      SS_DataRead_NS10        : in  std_logic_vector(31 downto 0) := (others => '0');
+      ns10_done               : in  std_logic;                     -- type 17 / 18 write taken
+      ns10_nv_addr            : in  std_logic_vector(25 downto 0); -- DDR3 dword address of the NVRAM region (type 18 save)
 
       sdram_done              : in  std_logic;
             
@@ -87,8 +91,9 @@ end entity;
 
 architecture arch of savestates is
 
-   constant STATESIZE      : integer := 1048574;
-   constant SAVESTATESIZE  : integer := 16#100000#; -- 1048576 Dwords = 4096 kbyte
+   -- NS10: 8 MB slots (4 MB RAM, 2 MB VRAM, board state), state file 7 MB; STATESIZE doubles as the format check
+   constant STATESIZE      : integer := 1835006;
+   constant SAVESTATESIZE  : integer := 16#200000#; -- 2097152 Dwords = 8192 kbyte
    
    constant SETTLECOUNT    : integer := 4095;
    constant HEADERCOUNT    : integer := 2;
@@ -117,9 +122,17 @@ architecture arch of savestates is
       ( 31744,   256),    -- Scratchpad   12   
       ( 32768, 16384),    -- CDROM        13
       (131072,131072),    -- SPURAM       14
-      (262144,262144),    -- VRAM         15
-      (524288,524288)     -- RAM          16
+      (262144,524288),    -- VRAM         15   NS10: 2 MB (rows 512-1023 at DDR3 0x800000)
+      (786432,1048576),   -- RAM          16   NS10: 4 MB
+      ( 49152,  9312),    -- NS10 board   17   board RAM, NAND page register, ROM board / decrypter / I/O registers
+      ( 65536,  4224)     -- NS10 NVRAM   18   settings region of the ROM image (2112 beats max)
    );
+
+   -- NS10: VRAM dword index -> DDR3 dword address (rows 512-1023 = second MB at 0x800000)
+   function vram_addr(a : unsigned(19 downto 0)) return std_logic_vector is
+   begin
+      return "0000" & std_logic_vector(a(18 downto 18)) & "000" & std_logic_vector(a(17 downto 0));
+   end function;
 
    type tstate is
    (
@@ -148,12 +161,15 @@ architecture arch of savestates is
       LOADMEMORY_WRITE_SDRAM,
       LOADMEMORY_WRITE_SPURAM,
       LOADMEMORY_WAIT_SPURAM,
-      LOADMEMORY_WRITE_NEXT
+      LOADMEMORY_WRITE_NS10,
+      LOADMEMORY_WRITE_NEXT,
+      PRECHECK_SETTLE,
+      PRECHECK_READ
    );
    signal state : tstate := IDLE;
    
-   signal count               : integer range 0 to 524288 := 0;
-   signal maxcount            : integer range 0 to 524288;
+   signal count               : integer range 0 to 1048576 := 0;
+   signal maxcount            : integer range 0 to 1048576;
    
    -- must check if savestate is valid at reset time and keep track of it, because we cannot check at runtime
    signal ssValid             : std_logic_vector(3 downto 0) := (others => '0');
@@ -167,7 +183,7 @@ architecture arch of savestates is
    signal loading_ss_2x       : std_logic := '0';
    
    signal SS_DataWrite_2x     : std_logic_vector(31 downto 0) := (others => '0');
-   signal SS_Adr_2x           : unsigned(18 downto 0) := (others => '0');
+   signal SS_Adr_2x           : unsigned(19 downto 0) := (others => '0');
    signal SS_wren_2x          : std_logic_vector(SAVETYPESCOUNT - 1 downto 0);
    signal SS_rden_2x          : std_logic_vector(SAVETYPESCOUNT - 1 downto 0);
    
@@ -179,7 +195,7 @@ architecture arch of savestates is
    signal SPUwordcounter      : integer range 0 to 3 := 0;
    signal SS_DataRead         : std_logic_vector(31 downto 0);
    signal SS_DataRead_2x      : std_logic_vector(31 downto 0);
-   signal RAMAddrNext         : unsigned(18 downto 0) := (others => '0');
+   signal RAMAddrNext         : unsigned(19 downto 0) := (others => '0');
    signal slowcounter         : integer range 0 to 8 := 0;
    
    signal SPURAM_done1X       : std_logic := '0';
@@ -197,6 +213,10 @@ architecture arch of savestates is
    signal reset_in_1          : std_logic := '0';
    
    signal exeMode             : std_logic := '0';
+
+   -- NS10: a load of a slot not known as valid first reads its header (state files loaded by the HPS after the reset check)
+   signal checkmode           : std_logic := '0';
+   signal load_retry          : std_logic := '0';
 
 begin 
 
@@ -248,6 +268,7 @@ begin
             when 11 => SS_DataRead <= SS_DataRead_SIO;
             when 12 => SS_DataRead <= SS_DataRead_SCP;
             when 13 => SS_DataRead <= SS_DataRead_CD;
+            when 17 => SS_DataRead <= SS_DataRead_NS10;
             when 16 => SS_DataRead <= ram_data;
             when others => SS_DataRead <= (others => '0');
          end case;
@@ -314,22 +335,35 @@ begin
                   ss_reset_2x          <= '1';
                   resetMode            <= '1';
                   savemode             <= '0';
+                  checkmode            <= '0';
+                  load_retry           <= '0';
                   savetype_counter     <= 12;
                   settle               <= 0;
                elsif (save = '1') then
                   resetMode            <= '0';
                   savemode             <= '1';
+                  checkmode            <= '0';
+                  load_retry           <= '0';
                   savetype_counter     <= 0;
                   state                <= WAITPAUSE;
                   header_amount        <= header_amount + 1;
-                  ssValid(savestate_number) <= '1'; 
-               elsif (load = '1' and ssValid(savestate_number) = '1') then
+                  ssValid(savestate_number) <= '1';
+               elsif ((load = '1' or load_retry = '1') and ssValid(savestate_number) = '1') then
                   state                <= WAITPAUSE;
                   reset_2x             <= '1';
                   ss_reset_2x          <= '1';
                   resetMode            <= '0';
                   savemode             <= '0';
+                  checkmode            <= '0';
+                  load_retry           <= '0';
                   savetype_counter     <= 0;
+                  settle               <= 0;
+               elsif (load = '1') then
+                  -- NS10: pause like a save (no reset), read the slot header, load if it is valid
+                  state                <= WAITPAUSE;
+                  resetMode            <= '0';
+                  savemode             <= '1';
+                  checkmode            <= '1';
                   settle               <= 0;
                end if;
             
@@ -355,7 +389,9 @@ begin
                   settle <= settle + 1;
                else
                   if (SS_idle = '1') then
-                     if (savemode = '1') then
+                     if (checkmode = '1') then
+                        state             <= PRECHECK_SETTLE;
+                     elsif (savemode = '1') then
                         state             <= SAVE_WAITSETTLE;
                      else
                         state             <= LOAD_WAITSETTLE;
@@ -408,7 +444,7 @@ begin
                
             when SAVEMEMORY_STARTREAD =>
                if (savetype_counter = 14) then -- spuram
-                  if (useSPUSDRAM = '1' or count <= 1024 or count > 16#1C000#) then
+                  if (useSPUSDRAM = '1' or count <= 1024 or count > 16#18000#) then -- NS10: 128 KB reverb RAM 0x60000-0x7FFFF
                      state          <= SAVEMEMORY_LOAD_SPURAM;
                      SPUwordcounter <= 0;
                      dwordcounter   <= 1;
@@ -421,8 +457,14 @@ begin
                   end if;
                elsif (savetype_counter = 15) then -- vram
                   state          <= SAVEMEMORY_LOAD_VRAM;
-                  ddr3_RD        <= '1'; 
-                  ddr3_ADDR      <= "0000000" & std_logic_vector(RAMAddrNext);
+                  ddr3_RD        <= '1';
+                  ddr3_ADDR      <= vram_addr(RAMAddrNext);
+                  dwordcounter   <= 1;
+                  RAMAddrNext    <= RAMAddrNext + 2;
+               elsif (savetype_counter = 18) then -- NS10 NVRAM region, read from the DDR3 ROM image
+                  state          <= SAVEMEMORY_LOAD_VRAM;
+                  ddr3_RD        <= '1';
+                  ddr3_ADDR      <= std_logic_vector(unsigned(ns10_nv_addr) + RAMAddrNext);
                   dwordcounter   <= 1;
                   RAMAddrNext    <= RAMAddrNext + 2;
                else
@@ -488,12 +530,12 @@ begin
                   dwordcounter           <= 0;
                   
                   if (savetype_counter = 14) then -- SPUram
-                     if (useSPUSDRAM = '1' or count <= 1024 or count > 16#1C000#) then
+                     if (useSPUSDRAM = '1' or count <= 1024 or count > 16#18000#) then
                         ddr3_DIN <= spu_din;
                      else
                         ddr3_DIN <= ddr3_DOUT_saved;
                      end if;
-                  elsif (savetype_counter = 15) then -- vram
+                  elsif (savetype_counter = 15 or savetype_counter = 18) then -- vram, NS10 NVRAM
                      ddr3_DIN <= ddr3_DOUT_saved;
                   end if;
                end if;
@@ -585,9 +627,11 @@ begin
                end if;
             
             when LOADMEMORY_NEXT =>
-               if ((FASTSIM = '0' and ((exeMode = '0' and savetype_counter < SAVETYPESCOUNT) or (exeMode = '1' and savetype_counter < 16))) or 
-                   (FASTSIM = '1' and savetype_counter < 14 and resetMode = '1') or 
-                   (FASTSIM = '1' and savetype_counter < 15 and resetMode = '0')) then
+               -- NS10: the reset clear stops after RAM (types 17 / 18 are board state, not memory to zero);
+               -- a state load in simulation loads everything (FASTSIM only shortens the reset clear)
+               if ((resetMode = '1' and FASTSIM = '0' and savetype_counter < 17) or
+                   (resetMode = '1' and FASTSIM = '1' and savetype_counter < 14) or
+                   (resetMode = '0' and ((exeMode = '0' and savetype_counter < SAVETYPESCOUNT) or (exeMode = '1' and savetype_counter < 16)))) then
                   ddr3_ADDR      <= std_logic_vector(to_unsigned(savestate_address + savetypes(savetype_counter).offset, 26));
                   ddr3_RD        <= not resetMode;
                   state          <= LOADMEMORY_READ;
@@ -616,7 +660,7 @@ begin
                   end if;
                   
                   if (savetype_counter = 14) then -- spuram
-                     if (useSPUSDRAM = '1' or count <= 1024 or count > 16#1C000#) then
+                     if (useSPUSDRAM = '1' or count <= 1024 or count > 16#18000#) then
                         dwordcounter   <= 1;
                         state          <= LOADMEMORY_WRITE_SPURAM; 
                         SPUwordcounter <= 0;
@@ -636,7 +680,7 @@ begin
                      ddr3_WE      <= '1';
                      ddr3_BE      <= x"FF";    
                      
-                     ddr3_ADDR    <= "0000000" & std_logic_vector(RAMAddrNext);
+                     ddr3_ADDR    <= vram_addr(RAMAddrNext);
                      RAMAddrNext  <= RAMAddrNext + 2;
                   end if;
                end if;
@@ -651,6 +695,9 @@ begin
                   if (savetype_counter = 16) then -- sdram
                      state <= LOADMEMORY_WRITE_SDRAM;
                   end if;
+                  if (savetype_counter = 17 or savetype_counter = 18) then -- NS10 board
+                     state <= LOADMEMORY_WRITE_NS10;
+                  end if;
                end if;
          
             when LOADMEMORY_WRITE_VRAM =>
@@ -663,6 +710,11 @@ begin
                   state <= LOADMEMORY_WRITE_NEXT;
                end if;
                
+            when LOADMEMORY_WRITE_NS10 =>
+               if (ns10_done = '1') then
+                  state <= LOADMEMORY_WRITE_NEXT;
+               end if;
+
             when LOADMEMORY_WRITE_SPURAM =>
                state               <= LOADMEMORY_WAIT_SPURAM;
                SS_SPURAM_dataWrite <= ddr3_DOUT_saved(SPUwordcounter * 16 + 15 downto SPUwordcounter * 16);
@@ -675,10 +727,10 @@ begin
                if (SPURAM_done2X = '1') then
                   if (SPUwordcounter = 3) then
                      state <= LOADMEMORY_WRITE_NEXT;
-                     if (FASTSIM = '1' and count = 1024) then
-                        count          <= count + 16#1C000# - 1024;
-                        RAMAddrNext    <= RAMAddrNext + (16#38000# - 2048);
-                        ddr3_ADDR_save <= std_logic_vector(unsigned(ddr3_ADDR_save) + 16#1C000# - 1024);
+                     if (FASTSIM = '1' and count = 1024 and resetMode = '1') then
+                        count          <= count + 16#18000# - 1024;
+                        RAMAddrNext    <= RAMAddrNext + (16#30000# - 2048);
+                        ddr3_ADDR_save <= std_logic_vector(unsigned(ddr3_ADDR_save) + 16#18000# - 1024);
                      end if;
                   else
                      state <= LOADMEMORY_WRITE_SPURAM;
@@ -706,8 +758,35 @@ begin
                      state            <= LOADMEMORY_NEXT;
                   end if;
                end if;
-            
-         
+
+            -- #################
+            -- NS10: header check before a load
+            -- #################
+
+            when PRECHECK_SETTLE =>
+               if (settle < SETTLECOUNT) then
+                  settle <= settle + 1;
+               else
+                  state          <= PRECHECK_READ;
+                  ddr3_ADDR      <= std_logic_vector(to_unsigned(savestate_address, 26));
+                  ddr3_RD        <= '1';
+               end if;
+
+               if (settle > (SETTLECOUNT / 2)) then
+                  ddr3_savestate    <= '1';
+               end if;
+
+            when PRECHECK_READ =>
+               if (ddr3_DOUT_READY = '1') then
+                  if (ddr3_DOUT(63 downto 32) = std_logic_vector(to_unsigned(STATESIZE, 32))) then
+                     ssValid(savestate_number) <= '1';
+                     load_retry                <= '1';
+                  end if;
+                  checkmode <= '0';
+                  savemode  <= '0';
+                  state     <= IDLE;
+               end if;
+
          end case;
          
          reset_in_1 <= reset_in;

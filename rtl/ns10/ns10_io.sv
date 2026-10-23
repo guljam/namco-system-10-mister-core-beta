@@ -9,7 +9,9 @@
 //  0x1FBA0008  I2C clock, 0x1FBA000A I2C data (MAME byte-ACK device)
 //  0x1FBA0012-19 int ack (clear bit (a-0x12)/2), 0x1FBA001A int status
 //  0x1FBF0000  CD unknown: 1
-//  100 Hz I/O timer: int |= 8 and an IRQ10 pulse.
+//  I/O timer: int |= 8 and an IRQ10 pulse, at 100 Hz (MAME) or 2x VBlank.
+//  The real IRQ10 source is unknown (MAME: TODO). The Driller input library stores IN1 on every
+//  other IRQ10, so 2x VBlank = exactly one input sample per frame (docs/fixes-2026-10-23.md).
 //============================================================================
 
 module ns10_io
@@ -26,11 +28,19 @@ module ns10_io
 	input       [7:0] dip,         // 1 = switch on
 	input      [31:0] in1,         // active low, MAME IN1 layout
 
+	input             irq10_vbl,   // IRQ10 source: 0 = 100 Hz timer, 1 = 2x VBlank (1/4 and 3/4 of the frame)
+	input             vblank,      // GPU VBLANK interrupt line
 	output reg        irq10,
 
 	output            bank_rd,
 	output            bank_wr,
-	output     [15:0] bank_off
+	output     [15:0] bank_off,
+
+	// savestate: 4 registers, read one clock after ss_addr
+	input       [1:0] ss_addr,
+	input      [31:0] ss_din,
+	input             ss_wr,
+	output reg [31:0] ss_dout
 );
 
 wire a_bank = (addr[20:17] == 4'hA);                 // 0x140000-0x15FFFF
@@ -46,6 +56,14 @@ localparam integer TIMER_PERIOD = 338688;            // 33868800 / 100
 reg [18:0] tcnt;
 reg [15:0] intr;
 
+// ------------------------------------------------------------------ 2x VBlank: IRQ10 at 1/4 and 3/4 of the
+// last frame length after each VBlank, away from the game's pad copy right after VBlank
+localparam integer FRAME_NOM = 565050;               // 33868800 / 59.94
+reg        vbl_1;
+reg [19:0] fcnt, fper;
+wire       vbl_rise = vblank & ~vbl_1;
+wire       vbl_tick = (fcnt == {2'b00, fper[19:2]}) || (fcnt == {2'b00, fper[19:2]} + {1'b0, fper[19:1]});
+
 // ------------------------------------------------------------------ I2C (MAME i2c_update)
 localparam I2_IDLE = 2'd0, I2_BYTE = 2'd1, I2_ACK1 = 2'd2, I2_ACK0 = 2'd3;
 reg  [1:0] i2_mode;
@@ -59,10 +77,22 @@ wire       c     = nclk;                             // device clock is always 1
 wire       d     = ndat & dev_dat;
 
 always @(posedge clk) begin
+	case (ss_addr)
+		2'd0: ss_dout <= {2'd0, tcnt, i2_mode, i2_bit, host_clk, host_dat, dev_dat, prev_clk, prev_dat};
+		2'd1: ss_dout <= {15'd0, vbl_1, intr};
+		2'd2: ss_dout <= {12'd0, fcnt};
+		2'd3: ss_dout <= {12'd0, fper};
+	endcase
+end
+
+always @(posedge clk) begin
 	irq10 <= 0;
 	if (reset) begin
 		tcnt     <= 0;
 		intr     <= 0;
+		vbl_1    <= 0;
+		fcnt     <= 0;
+		fper     <= FRAME_NOM[19:0];
 		i2_mode  <= I2_IDLE;
 		i2_bit   <= 0;
 		host_clk <= 1;
@@ -72,8 +102,16 @@ always @(posedge clk) begin
 		prev_dat <= 1;
 	end else begin
 		tcnt <= tcnt + 1'd1;
-		if (tcnt == TIMER_PERIOD - 1) begin
-			tcnt     <= 0;
+		if (tcnt == TIMER_PERIOD - 1) tcnt <= 0;
+
+		vbl_1 <= vblank;
+		if (vbl_rise) begin
+			fcnt <= 0;
+			fper <= fcnt;
+		end else if (~&fcnt)
+			fcnt <= fcnt + 1'd1;
+
+		if (irq10_vbl ? (vbl_tick && !vbl_rise) : (tcnt == TIMER_PERIOD - 1)) begin
 			intr[3]  <= 1;
 			irq10    <= 1;
 		end
@@ -129,6 +167,16 @@ always @(posedge clk) begin
 					end
 				endcase
 			end
+		end
+
+		// savestate load
+		if (ss_wr) begin
+			case (ss_addr)
+				2'd0: {tcnt, i2_mode, i2_bit, host_clk, host_dat, dev_dat, prev_clk, prev_dat} <= ss_din[29:0];
+				2'd1: {vbl_1, intr} <= ss_din[16:0];
+				2'd2: fcnt <= ss_din[19:0];
+				2'd3: fper <= ss_din[19:0];
+			endcase
 		end
 	end
 end

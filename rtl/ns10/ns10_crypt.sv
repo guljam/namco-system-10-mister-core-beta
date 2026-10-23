@@ -46,7 +46,13 @@ module ns10_crypt
 
 	// unscrambler (combinational)
 	input      [15:0] us_in,
-	output     [15:0] us_out           // unscramble(us_in ^ data_xor)
+	output     [15:0] us_out,          // unscramble(us_in ^ data_xor)
+
+	// savestate: 5 registers, read one clock after ss_addr, write while idle (not busy)
+	input       [2:0] ss_addr,
+	input      [31:0] ss_din,
+	input             ss_wr,
+	output reg [31:0] ss_dout
 );
 
 // ------------------------------------------------------------------ unscrambler
@@ -123,6 +129,17 @@ assign busy = t2_busy;
 wire [15:0] t2_plain = dec_in ^ t2_mask;
 
 always @(posedge clk) begin
+	case (ss_addr)
+		3'd0:    ss_dout <= {3'd0, act, iv, t1_cnt, t1_mask};
+		3'd1:    ss_dout <= {dec_out, t2_mask};
+		3'd2:    ss_dout <= pc[31:0];
+		3'd3:    ss_dout <= {pp[15:0], pc[47:32]};
+		3'd4:    ss_dout <= pp[47:16];
+		default: ss_dout <= 32'd0;
+	endcase
+end
+
+always @(posedge clk) begin
 	if (reset) begin
 		act     <= 0;
 		iv      <= 0;
@@ -184,6 +201,19 @@ always @(posedge clk) begin
 		if (switch_we & switch_data[15] & ~t2_use_ivtab) step <= 5'd31;
 		if (step == 5'd31) begin
 			pc   <= {32'd0, sb[3], 2'b00, sb[2], sb[1], 2'b00, sb[0], 8'd0};
+			step <= 0;
+		end
+
+		// savestate load
+		if (ss_wr) begin
+			case (ss_addr)
+				3'd0: {act, iv, t1_cnt, t1_mask} <= ss_din[28:0];
+				3'd1: {dec_out, t2_mask} <= ss_din;
+				3'd2: pc[31:0] <= ss_din;
+				3'd3: {pp[15:0], pc[47:32]} <= ss_din;
+				3'd4: pp[47:16] <= ss_din;
+				default: ;
+			endcase
 			step <= 0;
 		end
 	end

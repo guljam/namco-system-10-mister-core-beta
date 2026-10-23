@@ -1,0 +1,5 @@
+gen_*/
+ghdl_*/
+*.log
+base.txt
+new.txt
