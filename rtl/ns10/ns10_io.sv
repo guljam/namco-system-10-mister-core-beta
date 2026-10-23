@@ -12,6 +12,8 @@
 //  I/O timer: int |= 8 and an IRQ10 pulse, at 100 Hz (MAME) or 2x VBlank.
 //  The real IRQ10 source is unknown (MAME: TODO). The Driller input library stores IN1 on every
 //  other IRQ10, so 2x VBlank = exactly one input sample per frame (docs/fixes-2026-10-23.md).
+//  Driller sets (irq10_late) take the two IRQ10 at 5/8 and 7/8 of the frame, after both players'
+//  updates (versus P2 ends up to ~6.5 ms after VBlank), for Drill (Auto) (docs/fixes-2026-10-24.md).
 //============================================================================
 
 module ns10_io
@@ -29,6 +31,7 @@ module ns10_io
 	input      [31:0] in1,         // active low, MAME IN1 layout
 
 	input             irq10_vbl,   // IRQ10 source: 0 = 100 Hz timer, 1 = 2x VBlank (1/4 and 3/4 of the frame)
+	input             irq10_late,  // 2x VBlank at 5/8 and 7/8 of the frame
 	input             vblank,      // GPU VBLANK interrupt line
 	output reg        irq10,
 
@@ -62,7 +65,9 @@ localparam integer FRAME_NOM = 565050;               // 33868800 / 59.94
 reg        vbl_1;
 reg [19:0] fcnt, fper;
 wire       vbl_rise = vblank & ~vbl_1;
-wire       vbl_tick = (fcnt == {2'b00, fper[19:2]}) || (fcnt == {2'b00, fper[19:2]} + {1'b0, fper[19:1]});
+wire       vbl_tick = irq10_late ?
+	((fcnt == {1'b0, fper[19:1]} + {3'b000, fper[19:3]}) || (fcnt == fper - {3'b000, fper[19:3]})) :
+	((fcnt == {2'b00, fper[19:2]}) || (fcnt == {2'b00, fper[19:2]} + {1'b0, fper[19:1]}));
 
 // ------------------------------------------------------------------ I2C (MAME i2c_update)
 localparam I2_IDLE = 2'd0, I2_BYTE = 2'd1, I2_ACK1 = 2'd2, I2_ACK0 = 2'd3;

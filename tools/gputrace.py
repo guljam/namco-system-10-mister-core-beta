@@ -6,6 +6,7 @@
     python tools/gputrace.py dump <in.bin> [out.txt]
     python tools/gputrace.py fields <in.bin> [out.txt]   # one line per vblank
     python tools/gputrace.py rombus <in.bin> [out.txt]   # one line per vblank: flips, EXP1 reads / wait, SPU stream
+    python tools/gputrace.py drill <in.bin> [out.txt]    # Drill (Auto): state changes and IRQ10 acks per vblank
 
 Entry: [63:60] type, [59:34] time (clk2x/16), [33] activeLineLSB, [32] inVsync, [31:0] data.
 """
@@ -105,7 +106,32 @@ def decode(t, d):
             return f"EXP1 reads {d & 0xFFFFFFF}"
         if sub == 5:
             return f"EXP1 wait clk2x {d & 0xFFFFFFF}"
+        if sub == 6:
+            return "AF " + af_text(d)
     return f"{d:08X}"
+
+
+def af_text(d):
+    """ns10_autofire dbg: {pad P2 P1, fire P2 P1, btn P2 P1, versus, side, st1, st0, cooldown 1, cooldown 0}"""
+    return (f"pad {(d >> 26) & 3:02b} fire {(d >> 24) & 3:02b} btn {(d >> 22) & 3:02b} vs {(d >> 21) & 1} "
+            f"side {(d >> 20) & 1} st1 {(d >> 18) & 3} st0 {(d >> 16) & 3} cd1 {(d >> 8) & 0xFF} cd0 {d & 0xFF}")
+
+
+def drill(path, out=None):
+    """Drill (Auto): per vblank, the autofire state changes (ms after the vblank) and the IRQ10 acks
+    (EXP3 write 0x1FBA0018: the ISR that read IN1 just before)."""
+    f = open(out, "w") if out else sys.stdout
+    vbl = None
+    for t, s, lsb, vs, d in entries(path):
+        if t == 0xA:
+            vbl = s
+            f.write(f"{s * 1000:10.3f} VBL\n")
+        elif vbl is None:
+            continue
+        elif t == 0xF and (d >> 28) == 6:
+            f.write(f"{s * 1000:10.3f}   +{(s - vbl) * 1000:6.3f}  AF {af_text(d)}\n")
+        elif t == 0xF and (d >> 28) == 3 and ((d >> 24) & 0xF) == 0xA and ((d >> 16) & 0xFF) == 0x18:
+            f.write(f"{s * 1000:10.3f}   +{(s - vbl) * 1000:6.3f}  IRQ10 ack\n")
 
 
 def dump(path, out=None):
@@ -186,3 +212,5 @@ if __name__ == "__main__":
         fields(a[1], a[2] if len(a) > 2 else None)
     elif a[0] == "rombus":
         rombus(a[1], a[2] if len(a) > 2 else None)
+    elif a[0] == "drill":
+        drill(a[1], a[2] if len(a) > 2 else None)

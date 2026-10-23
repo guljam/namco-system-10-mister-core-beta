@@ -453,17 +453,22 @@ wire        vblank_irq;
 wire        bank_rd, bank_wr;
 wire [15:0] bank_off;
 
-// Drill (Auto): Driller MRAs (config flag af_b2) take Button2 (joy bit 5) as 25/s autofire synced to the
-// game's IN1 low reads, ORed into Button1; Button2 then does not reach IN1. Key mapping order Drill, Drill (Auto).
+// Drill (Auto): Driller MRAs (config flag af_b2) take Button2 (joy bit 5) as autofire synced to the player's
+// landing (game RAM from the SDRAM bus), ORed into Button1; Button2 then does not reach IN1. Key mapping
+// order Drill, Drill (Auto). Mr. Driller 2 is the MEM(M) Driller board, Mr. Driller G the MEM(N) one.
 wire [1:0] af_fire;
+wire [27:0] af_dbg;
 
 ns10_autofire ns10_autofire
 (
 	.clk(clk_1x), .reset(cpu_reset),
-	.in_rd(exp3_read && exp3_addr[20:1] == 20'hD0002),   // 0x1FBA0004
+	.game(!af_b2 ? 2'd0 : (board_type == 2'd0) ? 2'd1 : 2'd2),
 	.osd(OSD_STATUS),
 	.btn({joy2[5], joy[5]} & {2{af_b2}}),
-	.fire(af_fire)
+	.fire(af_fire), .dbg(af_dbg),
+	.ram_req(sdram_req), .ram_rnw(sdram_rnw), .ram_dma(sdram_dma), .ram_cache(sdram_cache),
+	.ram_addr(sdram_addr), .ram_be(sdram_be), .ram_wdata(sdr_sdram_din),
+	.ram_rdack(sdram_readack), .ram_rdata(sdr_sdram_dout32)
 );
 
 // MAME IN1, active low
@@ -495,7 +500,7 @@ ns10_io ns10_io
 	.clk(clk_1x), .reset(cpu_reset),
 	.rd(exp3_read), .wr(exp3_write), .addr(exp3_addr), .wdata(exp3_dataWrite), .rdata(exp3_dataRead),
 	.dip({status[97], status[98], status[99], status[100], status[101], status[102], status[103], status[104]}),
-	.in1(in1), .irq10_vbl(!DEBUG || !status[87]), .vblank(vblank_irq), .irq10(irq10),
+	.in1(in1), .irq10_vbl(!DEBUG || !status[87]), .irq10_late(af_b2), .vblank(vblank_irq), .irq10(irq10),
 	.bank_rd(bank_rd), .bank_wr(bank_wr), .bank_off(bank_off),
 	.ss_addr(ss_addr[1:0]), .ss_din(ss_din), .ss_wr(ss_wr_io), .ss_dout(ss_io_dout)
 );
@@ -646,7 +651,7 @@ wire        cache_half = DEBUG && (turbo == 2'b10 || (turbo == 2'b11 && status[8
 ns10_gtrace ns10_gtrace
 (
 	.clk(clk_2x),
-	.dbg_gpu(dbg_gpu), .dbg_bus(dbg_bus), .trig(status[85]),
+	.dbg_gpu(dbg_gpu), .dbg_bus(dbg_bus), .trig(status[85]), .af(af_dbg),
 	.e1_rd(exp1_read), .e1_wait(exp1_wait), .e3_wr(exp3_write), .e3_addr(exp3_addr), .e3_data(exp3_dataWrite),
 	.cfg({status[89], 10'd0, cache_half, 1'b0, status[83], turbo}),
 	.t_req(gt_req), .t_addr(gt_addr), .t_din(gt_din), .t_beat(gt_beat), .t_done(gt_done),

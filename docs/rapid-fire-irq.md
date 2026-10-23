@@ -7,6 +7,12 @@ Namco System 10(NS10) MiSTer 코어에서 Mr. Driller 2 / Mr. Driller G용 "싱�
 관련 커밋: `e147f68`(Drill (Auto) 25/s), `f94157c`(IRQ10 2xVBlank 기본값).
 작업 일지: `docs/fixes-2026-10-23.md`.
 
+> **2026-10-24 갱신:** Drill (Auto) 알고리즘을 "IN1 읽기 2번마다 반전"(6.1)에서 **착지 동기 연사**로 바꿨다.
+> 게임은 착지한 첫 프레임의 새 누름(에지)만 받으므로 고정 30/s 패턴은 낙하 프레임 수가 홀수일 때마다 1프레임을 잃었다.
+> 새 `ns10_autofire.sv`는 메인 RAM 버스를 엿봐서 플레이어 상태(낙하/쿨다운)와 게임 패드 값을 보고 판정 가능한 첫 프레임에
+> 바로 누르고, Driller 세트의 IRQ10은 5/8, 7/8 프레임으로 옮겼다. 원인, 주소, 구현, 검증은 `docs/fixes-2026-10-24.md`.
+> 아래 6.1 이하 연사 설명은 이전 방식의 기록이다.
+
 ---
 
 ## 1. 요약
@@ -351,13 +357,13 @@ DIP의 Test 스위치를 켜고 SWITCH TEST에 들어간다. Drill (Auto)를 누
 
 | 파일 | 역할 |
 |---|---|
-| `rtl/ns10/ns10_autofire.sv` | Drill (Auto): IN1 읽기 2번마다 반전 |
-| `rtl/ns10/ns10_io.sv` | IN1 / 인터럽트 레지스터, IRQ10 발생 (100 Hz / 2xVBlank) |
+| `rtl/ns10/ns10_autofire.sv` | Drill (Auto): 착지 동기 연사 (2026-10-24, 이전: IN1 읽기 2번마다 반전) |
+| `rtl/ns10/ns10_io.sv` | IN1 / 인터럽트 레지스터, IRQ10 발생 (100 Hz / 2xVBlank, Driller는 5/8, 7/8) |
 | `rtl/psx_top.vhd`, `rtl/psx_mister.vhd` | GPU VBLANK 인터럽트(`vblank_irq`)를 밖으로 연결 |
 | `NAMCOS10.sv` | J1 11번째 버튼, 연사 OR, IRQ10 모드 선택(디버그 OSD `O[87]`) |
 | `tools/mkmra.py`, `releases/_Arcade/*.mra` | Driller MRA에만 `Drill (Auto)` 버튼 이름 |
-| `sim/ns10/tb_autofire.sv`, `run_autofire.sh` | 연사 모듈 시뮬 |
-| `sim/ns10/tb_irq10.sv`, `run_irq10.sh` | IRQ10 + 연사 통합 시뮬 |
+| `sim/ns10/tb_autofire.sv`, `run_autofire.sh` | 연사 모듈 + IRQ10, RAM 버스 위 Driller 게임 모델 시뮬 |
+| `sim/ns10/tb_irq10.sv`, `run_irq10.sh` | IRQ10 위상 / 주기 / 탭 시뮬 |
 | `tools/mame/tap_input.lua` | MAME 입력 주입 / 게임이 본 연사 측정 |
 | `tools/mame/irq10_vbl2.py` | MAME 복사본에 2xVBlank IRQ10 패치 |
 | `docs/fixes-2026-10-23.md` | 작업 일지 (요구사항, 결정 과정, 빌드 기록) |

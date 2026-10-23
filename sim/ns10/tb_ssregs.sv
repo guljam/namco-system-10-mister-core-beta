@@ -32,7 +32,7 @@ ns10_io io
 (
 	.clk(clk), .reset(reset),
 	.rd(1'b0), .wr(1'b0), .addr(21'd0), .wdata(16'd0), .rdata(),
-	.dip(8'd0), .in1(32'hFFFFFFFF), .irq10_vbl(1'b1), .vblank(1'b0), .irq10(),
+	.dip(8'd0), .in1(32'hFFFFFFFF), .irq10_vbl(1'b1), .irq10_late(1'b0), .vblank(1'b0), .irq10(),
 	.bank_rd(), .bank_wr(), .bank_off(),
 	.ss_addr(ss_addr[1:0]), .ss_din(ss_din), .ss_wr(ss_wr && ss_addr[13:4] == 10'h245), .ss_dout(io_q)
 );

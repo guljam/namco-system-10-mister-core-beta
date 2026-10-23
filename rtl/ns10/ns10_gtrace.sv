@@ -18,7 +18,8 @@
 //              2 DMA4 (SPU) write {reg[27:26] 0 MADR / 1 BCR / 2 CHCR, data[25:0]},
 //              3 EXP3 write {addr[19:16], addr[7:0], data[15:0]} (MEM(M) bank 0x1FB4xxxx),
 //              4 vblank: EXP1 reads (16 bit strobes) since the last vblank,
-//              5 vblank: clk2x with the EXP1 wait (ROM board busy) since the last vblank
+//              5 vblank: clk2x with the EXP1 wait (ROM board busy) since the last vblank,
+//              6 Drill (Auto) state (ns10_autofire dbg[27:0]) on a change and at each vblank
 //  Unused slots of the last burst are 0. The probe returns
 //  {state[1:0], lost != 0, 7'd0, beats written[21:0]}.
 //============================================================================
@@ -35,6 +36,7 @@ module ns10_gtrace #(parameter [25:0] TPS = 26'd4233600)   // ticks per second (
 	input      [20:0] e3_addr,
 	input      [15:0] e3_data,
 	input             trig,
+	input      [27:0] af,            // ns10_autofire dbg (clk1x)
 	input      [15:0] cfg,
 
 	output reg        t_req = 0,
@@ -103,8 +105,8 @@ function [63:0] ent(input [3:0] t, input [27:0] tm, input [31:0] d);
 endfunction
 
 // ------------------------------------------------------------------ event slots, one drained per clock
-localparam NS = 11;
-localparam S_G = 0, S_DONE = 1, S_BUS = 2, S_DMA = 3, S_FA = 4, S_FB = 5, S_FULL = 6, S_CTL = 7, S_E3 = 8, S_X1 = 9, S_X2 = 10;
+localparam NS = 12;
+localparam S_G = 0, S_DONE = 1, S_BUS = 2, S_DMA = 3, S_FA = 4, S_FB = 5, S_FULL = 6, S_CTL = 7, S_E3 = 8, S_X1 = 9, S_X2 = 10, S_AF = 11;
 reg  [NS-1:0] pend = 0;
 reg    [63:0] slot[NS];
 
@@ -127,6 +129,7 @@ reg  [19:0] f_dma;
 reg   [9:0] f_gp0;
 reg         vs_1, full_1;
 reg         e1_rd_1, e3_wr_1;
+reg  [27:0] af_1;
 reg  [27:0] x_rd, x_wait;
 reg         dma_on;
 reg   [7:0] dma_gap;
@@ -187,6 +190,7 @@ always @(posedge clk) begin
 	full_1  <= g_full;
 	e1_rd_1 <= e1_rd;
 	e3_wr_1 <= e3_wr;
+	af_1    <= af;
 
 	if (rec) begin
 		// ------------------------------------------------------------ GPU
@@ -256,6 +260,7 @@ always @(posedge clk) begin
 			x_rd <= 0; x_wait <= 0;
 		end
 		if (g_full && !full_1) `ADD(S_FULL, ent(4'hC, etm, 32'd0));
+		if (af != af_1 || (g_vs && !vs_1)) `ADD(S_AF, ent(4'hF, etm, {4'h6, af}));
 	end
 
 	// ---------------------------------------------------------------- control
