@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mr. Driller G Ghost Block</title>
+<style>
+:root{
+  --bg:#f6f7f9;--fg:#1f2430;--muted:#5b6475;--card:#fff;--line:#d9dde5;--accent:#2a62d9;
+  --board:#3c4252;--grid:#8b91a0;--blue:#6a8fe8;--green:#6dc96d;--yellow:#f2c744;--brown:#8a4a22;
+  --ghost:#ff5a5a;--ok:#2e9d4a;--tagbg:#fff;--tagfg:#a01010;
+}
+@media (prefers-color-scheme:dark){
+  :root{--bg:#171a21;--fg:#e6e9f0;--muted:#9aa3b5;--card:#20242e;--line:#343a48;--accent:#7aa2ff;}
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.75 "Segoe UI","Malgun Gothic","Yu Gothic UI","Meiryo",system-ui,sans-serif}
+header{position:sticky;top:0;z-index:5;background:var(--card);border-bottom:1px solid var(--line)}
+header .in{max-width:900px;margin:0 auto;padding:8px 16px;display:flex;justify-content:flex-end;gap:6px}
+header button{border:1px solid var(--line);background:transparent;color:var(--fg);padding:6px 14px;border-radius:8px;font:inherit;font-size:14px;cursor:pointer}
+header button[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:#fff}
+main{max-width:900px;margin:0 auto;padding:8px 16px 64px}
+h1{font-size:1.8rem;line-height:1.3;margin:28px 0 12px}
+h2{font-size:1.35rem;margin:40px 0 8px;padding-top:16px;border-top:1px solid var(--line)}
+h3{font-size:1.1rem;margin:28px 0 6px}
+li{margin:2px 0}
+code{background:rgba(127,127,127,.18);padding:1px 6px;border-radius:4px;font-size:.92em}
+blockquote{margin:12px 0;padding:6px 16px;border-left:4px solid var(--accent);background:rgba(127,127,127,.1);border-radius:0 8px 8px 0}
+.fig{display:flex;gap:20px;align-items:flex-start;margin:14px 0;flex-wrap:wrap}
+.fig .cap{flex:1 1 220px;min-width:200px}
+.fig .cap p{margin:0 0 .8em}
+.row{display:flex;gap:16px;flex-wrap:wrap;margin:14px 0;align-items:flex-start}
+.pane{flex:1 1 280px;min-width:240px}
+.pane h4{margin:0 0 6px;font-size:1.02rem}
+.pane .cap{margin:8px 0 0;font-size:.92rem;line-height:1.55}
+.bad{color:#d33}.good{color:var(--ok)}
+/* board */
+.board{position:relative;display:grid;background-color:var(--board);--cs:76px;width:max-content;max-width:100%;
+  grid-template-columns:repeat(var(--cols),var(--cs));grid-auto-rows:var(--cs);
+  background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+  background-size:var(--cs) var(--cs);outline:1px solid var(--grid);outline-offset:-1px}
+.board.sm{--cs:min(28px,7vw)}
+.board.xs{--cs:min(24px,5.4vw)}
+.board.nogrid{background-image:none;outline:none}
+.cell{position:relative}
+.cell .b{position:absolute;inset:3px;border-radius:10px;display:flex;align-items:flex-start;justify-content:flex-start;
+  font-weight:700;color:#1d2a1d;font-size:calc(var(--cs)*.22);padding:calc(var(--cs)*.05) calc(var(--cs)*.1);
+  box-shadow:inset 0 0 0 2px rgba(0,0,0,.55)}
+.board.merge .cell .b{inset:0;box-shadow:inset 0 0 0 1px rgba(255,255,255,.2)}
+.k-B .b{background:var(--blue)}.k-G .b{background:var(--green)}.k-Y .b{background:var(--yellow)}
+.k-X .b{background:var(--brown);color:#e3b27c;align-items:center;justify-content:center;font-size:calc(var(--cs)*.5)}
+.board:not(.merge) .k-X .b{align-items:flex-start;justify-content:flex-start;font-size:calc(var(--cs)*.22)}
+.board.merge .k-X .b{box-shadow:inset 0 0 0 1px #3b1a05}
+.tag{position:absolute;left:50%;bottom:calc(var(--cs)*.05);transform:translateX(-50%);white-space:nowrap;
+  background:var(--tagbg);color:var(--tagfg);font-weight:700;border-radius:6px;padding:0 5px;line-height:1.35;
+  font-size:calc(var(--cs)*.15);z-index:2}
+.sp{position:absolute;inset:0;
+  background:radial-gradient(circle at 20% 70%,#e6bf56 0 9%,transparent 10%),
+  radial-gradient(circle at 45% 55%,#e6bf56 0 9%,transparent 10%),
+  radial-gradient(circle at 70% 70%,#e6bf56 0 9%,transparent 10%),
+  radial-gradient(circle at 30% 85%,#e6bf56 0 9%,transparent 10%),
+  radial-gradient(circle at 58% 82%,#e6bf56 0 9%,transparent 10%),
+  radial-gradient(circle at 82% 52%,#e6bf56 0 9%,transparent 10%)}
+.sp.weak{background:radial-gradient(circle at 25% 55%,#e6bf56 0 5%,transparent 6%),
+  radial-gradient(circle at 65% 68%,#e6bf56 0 5%,transparent 6%),
+  radial-gradient(circle at 45% 82%,#e6bf56 0 5%,transparent 6%)}
+.me{position:absolute;inset:14%;border-radius:50%;background:#eee;border:3px solid #d62828;color:#d62828;
+  display:flex;align-items:center;justify-content:center;font-weight:700;font-size:calc(var(--cs)*.3);z-index:2}
+.board.sm .me,.board.xs .me{border-width:2px;inset:10%}
+.ghost{position:absolute;inset:3px;border:3px dashed var(--ghost);color:var(--ghost);font-weight:700;
+  display:flex;align-items:flex-start;justify-content:flex-start;padding:calc(var(--cs)*.22) calc(var(--cs)*.2);
+  font-size:calc(var(--cs)*.2);z-index:1}
+.board.merge .ghost{inset:1px;border-width:3px}
+.box{position:absolute;inset:1px;border:2px solid #ff2828;z-index:1}
+.box.y{border-color:#ffe600}
+.board.xs .box{border-width:1.5px;inset:0}
+.board svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:3}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:.92rem;margin:6px 0}
+.legend i{display:inline-block;width:14px;height:14px;vertical-align:-2px;margin-right:4px}
+.legend .r{border:2px solid #ff2828}.legend .y{border:2px solid #ffe600;background:#333}
+</style>
+</head>
+<body>
+<header><div class="in" id="langbar">
+  <button data-lang="ko">한국어</button><button data-lang="en">English</button><button data-lang="ja">日本語</button>
+</div></header>
+<main>
+<h1 data-i="title"></h1>
+<p data-i="intro1"></p>
+<ul data-i="intro_list"></ul>
+<p data-i="intro2"></p>
+
+<h2 data-i="h1"></h2>
+<p data-i="s1_a"></p>
+<ol data-i="s1_list"></ol>
+<p data-i="s1_b"></p>
+<p data-i="s1_c"></p>
+
+<h2 data-i="h2"></h2>
+<p data-i="s2_legend_intro"></p>
+<ul data-i="s2_legend"></ul>
+
+<h3 data-i="s2_h1"></h3>
+<div class="fig"><div class="board" id="step1"></div><div class="cap" data-i="s2_cap1"></div></div>
+<p data-i="s2_p1"></p>
+
+<h3 data-i="s2_h2"></h3>
+<div class="fig"><div class="board" id="step2"></div><div class="cap" data-i="s2_cap2"></div></div>
+<p data-i="s2_p2"></p>
+<ul data-i="s2_p2_list"></ul>
+
+<h3 data-i="s2_h3"></h3>
+<div class="fig"><div class="board" id="step3"></div><div class="cap" data-i="s2_cap3"></div></div>
+<p data-i="s2_p3"></p>
+<blockquote data-i="s2_q3"></blockquote>
+<p data-i="s2_p3b"></p>
+
+<h3 data-i="s2_h4"></h3>
+<div class="fig"><div class="board" id="step4"></div><div class="cap" data-i="s2_cap4"></div></div>
+<p data-i="s2_p4"></p>
+<p data-i="s2_p4b"></p>
+
+<h3 data-i="s2_h5"></h3>
+<div class="row" id="moment"></div>
+<ol data-i="s2_moment_list"></ol>
+
+<h2 data-i="h3"></h2>
+<p data-i="s3_a"></p>
+<div class="row">
+  <div class="pane"><h4 data-i="s3_A_t"></h4><div class="board" id="gA"></div><p class="cap" data-i="s3_A_c"></p></div>
+  <div class="pane"><h4 data-i="s3_B_t"></h4><div class="board" id="gB"></div><p class="cap" data-i="s3_B_c"></p></div>
+</div>
+<p data-i="s3_A"></p>
+<p data-i="s3_B"></p>
+<p data-i="s3_C"></p>
+
+<h3 data-i="s3_h10"></h3>
+<p data-i="s3_10a"></p>
+<div class="legend"><span><i class="r"></i><span data-i="lg_red"></span></span><span><i class="y"></i><span data-i="lg_yel"></span></span></div>
+<div class="row">
+  <div class="pane"><h4 data-i="s3_o_t"></h4><div class="board xs merge nogrid" id="g10o"></div><p class="cap bad" data-i="s3_o_c"></p></div>
+  <div class="pane"><h4 data-i="s3_f_t"></h4><div class="board xs merge nogrid" id="g10f"></div><p class="cap good" data-i="s3_f_c"></p></div>
+</div>
+<p data-i="s3_10b"></p>
+
+<h2 data-i="h4"></h2>
+<p data-i="s4_a"></p>
+<p data-i="s4_b"></p>
+
+<h2 data-i="h5"></h2>
+<div class="fig"><div class="board" id="stepFix"></div><div class="cap" data-i="s5_cap"></div></div>
+<p data-i="s5_a"></p>
+<ul data-i="s5_list"></ul>
+<p data-i="s5_b"></p>
+<h3 data-i="s5_h"></h3>
+<p data-i="s5_c"></p>
+<ul data-i="s5_plist"></ul>
+
+<h2 data-i="h6"></h2>
+<h3 data-i="s6_h1"></h3>
+<ul data-i="s6_ok"></ul>
+<h3 data-i="s6_h2"></h3>
+<ul data-i="s6_todo"></ul>
+
+<h2 data-i="h7"></h2>
+<ul data-i="dev"></ul>
+</main>
+
+<script>
+const T={
+ko:{
+title:'미스터 드릴러 G "유령 블록" 버그 이야기',
+intro1:'미스터 드릴러 G를 하다 보면 아주 가끔 이런 일이 생깁니다.',
+intro_list:'<li>떨어지던 블록이 그 자리에서 <b>딱 멈춰</b> 버린다</li><li>멈춘 블록을 드릴로 파도 <b>안 파진다</b></li><li>블록이 받쳐 주는 것도 없는데 <b>공중에 떠 있다</b></li><li>붙어 있어야 할 같은 색 블록이 따로 놀거나, 반짝이며 사라지다가 멈춘 블록이 보인다</li>',
+intro2:'이 문서는 이 일이 <b>왜</b> 생기는지를 그림으로 천천히 설명합니다. 어려운 말은 최대한 빼고 썼으니 편하게 읽어 주세요.',
+h1:'1. 먼저, 게임은 블록을 어떻게 기억할까?',
+s1_a:'게임 화면은 바둑판처럼 <b>칸</b>으로 나뉘어 있습니다. 게임은 칸 하나하나마다 작은 메모 두 장을 붙여 둡니다.',
+s1_list:'<li><b>무슨 블록인가</b> – 파랑, 초록, 노랑, 갈색(X 블록)… 아니면 빈칸</li><li><b>지금 뭐 하는 중인가</b> – 아래 중 하나<ul><li>가만히 서 있음</li><li>흔들리는 중 (곧 떨어지려고 부들부들)</li><li>떨어지는 중</li><li>반짝이며 사라지는 중</li><li>드릴에 파이는 중</li></ul></li>',
+s1_b:'게임은 1초에 60번 판 전체를 훑어보면서 이 메모를 보고 "이 블록은 이제 떨어져야겠네", "이건 사라지게 하자" 하고 결정합니다.',
+s1_c:'중요한 점은 <b>두 메모가 서로 맞아야 한다</b>는 것입니다. "빈칸"인데 "가만히 서 있음"이라는 메모가 붙으면 어떻게 될까요? → 화면에는 아무것도 안 보이는데 게임은 <b>거기에 단단한 블록이 있다</b>고 믿게 됩니다. 이 문서에서는 이것을 <b>유령 블록</b>이라고 부르겠습니다.',
+h2:'2. 유령 블록이 태어나는 순간',
+s2_legend_intro:'아래 그림의 글자는 이렇게 읽어 주세요.',
+s2_legend:'<li><b>나</b> = 드릴러(플레이어)</li><li><b>D</b> = 드릴러 바로 옆의 초록 블록 (이제 팔 블록)</li><li><b>E</b> = D 왼쪽의 파랑 블록</li><li><b>N, T</b> = 그 위의 초록, 노랑 블록</li><li>맨 아래 노란 줄 = 지금 반짝이며 사라지는 중</li>',
+s2_h1:'1단계 – 준비',
+s2_cap1:'<p>맨 아래 노란 줄이 반짝반짝 사라지는 중.</p><p>드릴러(나)는 초록 D 바로 옆에 서 있다.</p><p>T 위의 칸(가운데 위)은 그냥 빈칸.</p>',
+s2_p1:'맨 아래 노란 줄이 반짝이며 사라지고 있습니다. 드릴러는 초록 D 옆에 서 있습니다. 여기까지는 아주 평범한 장면입니다.',
+s2_h2:'2단계 – 딱 같은 순간에 두 가지 일이 겹친다 (1/60초)',
+s2_cap2:'<p>노란 줄이 사라진 바로 그 순간 드릴러가 D를 판다.</p><p>파랑 E는 발밑이 비어서 "떨어질래!" 하고, 붙어 있는 N, T 에게도 "같이 떨어지자" 표시를 붙인다.</p>',
+s2_p2:'노란 줄이 사라지는 <b>바로 그 순간</b> (1/60초, 화면 한 장 차이) 드릴러가 D를 팝니다.',
+s2_p2_list:'<li>파랑 E는 발밑의 노란 줄이 없어졌으니 "나 떨어질래!" 하고 표시합니다.</li><li>이때 게임은 E와 맞닿은 블록들(N, 그리고 N 옆의 T)에게도 "같이 떨어지자" 표시를 붙여 줍니다.</li>',
+s2_h3:'3단계 – 게임이 다시 확인한다',
+s2_cap3:'<p>게임: "T 밑에는 지금 파이고 있는 D가 있네? 그럼 T는 아직 받쳐져 있구나. T는 다시 세워!"</p><p>그리고 T 위쪽으로 한 칸씩 올라가며 "너도 서 있어"라고 알려 준다.</p>',
+s2_p3:'그런데 게임이 T를 다시 보니, T 바로 밑에는 <b>지금 파이고 있는 D</b>가 있습니다. 게임 규칙에서 "파이는 중"인 블록은 아직 받침 역할을 합니다. 그래서 게임은 이렇게 생각합니다.',
+s2_q3:'"어? T는 아직 받쳐져 있네. T는 떨어지지 말고 다시 세우자. T 위에 얹혀 있던 블록들도 다 같이 다시 세워 줘야지."',
+s2_p3b:'그리고 T에서부터 <b>한 칸씩 위로 올라가며</b> "너도 서 있어"라고 알려 줍니다.',
+s2_h4:'4단계 – 실수! 유령 블록 탄생',
+s2_cap4:'<p>올라간 칸(T 위)은 빈칸인데 게임은 그걸 확인하지 않고 "서 있음" 표시를 붙였다.</p><p>그래서 색도 모양도 없는데 단단한 칸이 생겨 버림. = <b>유령 블록</b></p>',
+s2_p4:'여기서 문제가 생깁니다. 위로 올라가면서 게임은 <b>그 칸에 정말 블록이 있는지 확인하지 않습니다.</b> T 위의 칸은 원래 빈칸이었는데도 "가만히 서 있음" 메모가 붙어 버립니다. 그 결과 <b>색도 모양도 없는데 단단한 칸</b>, 즉 유령 블록이 생깁니다.',
+s2_p4b:'참고로 게임 안에는 이와 거의 똑같은 일을 하는 "다시 세우기"가 하나 더 있는데, 그쪽은 위로 올라갈 때 "거기 블록이 진짜 있나?"를 제대로 확인합니다. 이쪽만 그 확인이 빠져 있었던 것입니다. 개발 당시의 단순한 실수로 보입니다.',
+s2_h5:'실제 게임 화면에서 보면',
+s2_moment_list:'<li>아래 노란 줄이 반짝이며 사라지기 직전</li><li>줄이 사라진 순간 드릴러가 초록 블록을 팜</li><li><b>원래 게임</b>: 빨간 점선 칸은 화면에서는 그냥 빈칸이지만, 게임 속에서는 이미 단단한 유령 블록입니다</li><li><b>고친 뒤</b>: 똑같은 순간인데 빈칸은 그대로 빈칸입니다</li>',
+m1:'① 아래 노란 줄이 반짝이며<br>사라지기 직전',m2:'② 노란 줄이 사라진 순간<br>드릴러가 초록 블록을 팜',
+m3:'③ 원래 게임: 빨간 점선 칸에<br>안 보이는 블록이 생김',m4:'④ 고친 뒤: 같은 순간인데<br>빈칸은 그대로 빈칸',
+h3:'3. 유령 블록은 그 뒤에 무슨 일을 할까?',
+s3_a:'유령 블록은 생긴 직후에는 아무 티가 안 납니다. 문제는 그 뒤입니다.',
+s3_A_t:'A. 공중에 떠 있는 블록',s3_A_c:'파랑은 아래의 유령 칸을 바닥으로 알고 공중에 그대로 서 있다.',
+s3_B_t:'B. 멈춰 버린 블록',s3_B_c:'유령이 "떨어지는 중"이 되면 몸이 없어서 끝까지 못 내려간다. 위의 노랑은 유령이 비켜 주길 영원히 기다린다. → 멈춘 채로, 드릴로도 안 파진다.',
+s3_A:'<b>A. 공중에 떠 있는 블록</b><br>위에서 블록이 내려오면 유령 칸을 바닥으로 알고 그 위에 섭니다. 화면으로 보면 아무것도 없는 곳 위에 블록이 둥둥 떠 있습니다.',
+s3_B:'<b>B. 멈춰 버린 블록, 안 파지는 블록</b><br>나중에 주변이 무너져서 유령 블록도 "떨어지는 중"이 되면 더 큰 문제가 생깁니다. 유령에게는 몸(블록 종류)이 없어서 떨어지는 동작을 끝까지 마치지 못합니다. 그 위의 진짜 블록은 "아래가 비켜 주면 내려가야지" 하고 <b>영원히 기다립니다.</b> 게임에서 "떨어지는 중"인 블록은 드릴로 팔 수 없게 되어 있어서, 결국 <b>멈춘 채로 안 파지는 블록</b>이 됩니다.',
+s3_C:'게다가 유령 블록은 주변 블록들이 떨어지고 다시 서는 과정에 휩쓸리며 <b>점점 번집니다.</b>',
+ghost:'유령',
+s3_h10:'실제 게임 화면 – 10초 뒤',
+s3_10a:'왼쪽은 원래 게임, 오른쪽은 고친 게임입니다. 둘 다 위의 장면에서 10초가 지난 모습입니다. (드릴러는 그동안 가만히 있었습니다.)',
+lg_red:'빨간 칸 = 화면에는 안 보이지만 게임 속에서는 막혀 있는 유령 블록',lg_yel:'노란 테두리 = 유령 때문에 "떨어지는 중"으로 영영 멈춘 진짜 블록',
+s3_o_t:'원래 게임 (10초 뒤)',s3_o_c:'빨강 = 안 보이는 유령 블록, 노랑 = 영영 멈춘 블록',
+s3_f_t:'고친 뒤 (10초 뒤)',s3_f_c:'유령 블록 없음, 모두 정상',
+s3_10b:'왼쪽을 보면 유령 블록이 기둥처럼 길게 번져 있고, 그 위로 블록들이 허공에 매달려 있습니다. 오른쪽(고친 뒤)에는 이런 것이 하나도 없습니다.',
+h4:'4. 얼마나 자주 생길까?',
+s4_a:'아주 드뭅니다. 아래 줄이 <b>사라지는 바로 그 1/60초</b>에 그 위 블록을 파야 하고, 옆에 같이 발밑을 잃는 블록도 있어야 합니다. 일부러 노리기는 거의 불가능하고, 오래 플레이하다 보면 우연히 한 번씩 걸리는 정도입니다.',
+s4_b:'컴퓨터로 블록 배치와 입력을 마구 바꿔 가며 300번 돌려 보았을 때, 원래 게임에서는 4번 유령 블록이 생겼습니다.',
+h5:'5. 어떻게 고쳤나?',
+s5_cap:'<p><b>고친 뒤 "거기 진짜 블록 있어?"</b></p><p>한 칸 올라가기 전에 먼저 물어본다: "거기 떨어지던 블록이 정말 있어?", "아직 안 들른 칸이야?"</p><p>빈칸이면 거기서 멈춘다. → 유령 블록이 안 생긴다.</p>',
+s5_a:'고친 내용은 단순합니다. "다시 세우기"로 한 칸 위로 올라가기 전에 먼저 물어봅니다.',
+s5_list:'<li>"거기 떨어지려던 블록이 <b>정말 있어?</b>"</li><li>"<b>아직 안 들른</b> 칸이야?"</li>',
+s5_b:'둘 다 "응"일 때만 올라가고, 빈칸이면 거기서 멈춥니다. 그래서 빈칸에 "서 있음" 메모가 붙는 일이 없어집니다. 여기에 <b>안전망</b>을 하나 더 달았습니다. 혹시라도 "떨어지는 중"인데 아래가 막혀 움직이지 못하는 블록이 생기면, 가만히 기다리지 않고 "다시 한번 판단해 줘" 쪽으로 넘겨서 게임이 서 있을지 떨어질지를 새로 정하게 합니다. 보통 플레이에서는 이 안전망이 쓰일 일이 없습니다. 만약을 위한 것입니다.',
+s5_h:'게임 프로그램을 어떻게 바꾸나?',
+s5_c:'게임 프로그램은 롬 보드에 암호처럼 뒤섞인 상태로 들어 있어서 롬 파일을 직접 고치기가 어렵습니다. 그래서 게임이 켜지면서 프로그램을 <b>메모리에 다 펼쳐 놓은 뒤</b>, 문제가 되는 몇 줄만 바꿔 끼웁니다. (고치는 곳은 모두 15군데, 프로그램 전체에서 아주 작은 부분입니다.)',
+s5_plist:'<li><b>MiSTer 코어</b>: 프로그램이 메모리에 써지는 순간, 문제의 줄이면 고친 줄로 바꿔서 써 넣습니다. 예전에 저장한 세이브스테이트를 불러올 때도 같은 방식으로 고쳐집니다. 미스터 드릴러 G에서만 동작하고, 다른 게임에는 아무 영향이 없습니다.</li><li><b>GroovyMAME</b>: 화면 한 장마다 그 자리를 살펴보고, 아직 원래 줄이면 고친 줄로 바꿉니다. 역시 미스터 드릴러 G에서만 동작합니다.</li>',
+h6:'6. 확인한 것과 아직 남은 것',
+s6_h1:'확인한 것 (GroovyMAME에서 게임을 자동으로 돌리며 확인)',
+s6_ok:'<li>실제 버튼 입력(왼쪽 이동 + 드릴)만으로 유령 블록을 만드는 장면을 재현했고, 고친 뒤에는 생기지 않음</li><li>블록과 입력을 무작위로 바꾼 300번 테스트: 원래 게임 4번 발생 → 고친 뒤 0번</li><li>평소 플레이 화면(16가지 × 약 30초)을 화면 한 장마다 비교: 고친 게임과 원래 게임의 블록 움직임이 <b>완전히 똑같음</b> → 버그가 아닌 평범한 상황에서는 게임이 전혀 달라지지 않음</li>',
+s6_h2:'아직 남은 것',
+s6_todo:'<li>MiSTer 코어: 코드를 넣고 눈으로 검사만 했습니다. 빌드와 실기 테스트는 아직입니다.</li><li>GroovyMAME: 코드를 넣고 컴파일 확인만 했습니다. 실제 실행 테스트는 사용자가 합니다.</li><li>증상 중 "멈춤 / 공중에 뜸"은 이 원인으로 화면에서 직접 재현했습니다. "안 파짐"은 멈춘 블록이 "떨어지는 중" 상태로 남기 때문입니다(게임 규칙상 떨어지는 중인 블록은 파지지 않음). "같은 색끼리 떨어짐", "반짝이다 멈춤", "칸 사이에 걸쳐 멈춤"도 같은 유령 블록 탓일 가능성이 높지만, 화면으로 직접 다시 만들어 보지는 못했습니다.</li><li>미스터 드릴러 2에도 같은 문제가 있는지는 아직 확인하지 않았습니다. 확인 후 따로 고칠 예정입니다.</li>',
+h7:'개발자용 참고',
+dev:'<li>MiSTer 코어: <code>rtl/ns10/ns10_codepatch.sv</code> (고칠 위치와 원래/새 값 표), 연결은 <code>NAMCOS10.sv</code></li><li>GroovyMAME: <code>src/mame/namco/namcos10.cpp</code>의 <code>ns10_patch_mrdrilrg</code> (같은 표)</li><li>두 표는 똑같아야 합니다. 원래 값이 일치할 때만 바꾸므로 다른 버전의 게임 데이터에는 손대지 않습니다.</li>',
+me:'나',
+tFlash:'반짝',tFall:'떨어질래',tDig:'파는 중',tStand:'다시 섬'
+},
+en:{
+title:'The Mr. Driller G "Ghost Block" Bug',
+intro1:'Once in a great while, while playing Mr. Driller G, this happens:',
+intro_list:'<li>A falling block <b>stops dead</b> in place</li><li>Drilling the stopped block does <b>nothing</b> – it can\'t be dug</li><li>A block <b>floats in mid-air</b> with nothing under it</li><li>Blocks of the same color that should stay joined drift apart, or a block stops while blinking away</li>',
+intro2:'This document explains <b>why</b> it happens, slowly, with pictures. Technical jargon has been kept to a minimum, so please read at ease.',
+h1:'1. First, how does the game remember blocks?',
+s1_a:'The game screen is divided into <b>cells</b>, like a checkerboard. For every cell the game keeps two small notes.',
+s1_list:'<li><b>What kind of block is it?</b> – blue, green, yellow, brown (X block)… or empty</li><li><b>What is it doing right now?</b> – one of the following<ul><li>Standing still</li><li>Wobbling (about to fall)</li><li>Falling</li><li>Blinking away</li><li>Being drilled</li></ul></li>',
+s1_b:'60 times a second the game sweeps the whole field, reads these notes, and decides things like "this block should fall now" or "let this one disappear".',
+s1_c:'The important point is that <b>the two notes must agree</b>. What happens if a cell is "empty" but has the note "standing still"? → Nothing is visible on screen, but the game believes <b>there is a solid block there</b>. In this document we call it a <b>ghost block</b>.',
+h2:'2. The moment a ghost block is born',
+s2_legend_intro:'Read the letters in the diagrams below as follows.',
+s2_legend:'<li><b>Me</b> = the Driller (player)</li><li><b>D</b> = the green block right next to the Driller (the one about to be dug)</li><li><b>E</b> = the blue block to the left of D</li><li><b>N, T</b> = the green and yellow blocks above them</li><li>The yellow row at the bottom = currently blinking away</li>',
+s2_h1:'Step 1 – Setup',
+s2_cap1:'<p>The yellow row at the bottom is blinking away.</p><p>The Driller (me) stands right next to the green D.</p><p>The cell above T (top middle) is just empty.</p>',
+s2_p1:'The yellow row at the bottom is blinking away. The Driller stands next to the green D. So far this is a perfectly ordinary scene.',
+s2_h2:'Step 2 – Two things collide in the very same moment (1/60 s)',
+s2_cap2:'<p>At the very moment the yellow row vanishes, the Driller digs D.</p><p>Blue E has nothing under it and says "I\'m falling!", and tags the touching N and T with "fall together".</p>',
+s2_p2:'At <b>exactly the moment</b> the yellow row vanishes (1/60 s, a single video frame), the Driller digs D.',
+s2_p2_list:'<li>Blue E has lost the yellow row under its feet, so it flags itself "I\'m going to fall!".</li><li>The game also puts the "fall together" flag on the blocks touching E (N, and T next to N).</li>',
+s2_h3:'Step 3 – The game checks again',
+s2_cap3:'<p>Game: "Under T there is D, which is being dug? Then T is still supported. Stand T back up!"</p><p>Then it climbs up from T, one cell at a time, telling each cell "you stand too".</p>',
+s2_p3:'But when the game looks at T again, directly below T there is <b>D, which is being dug right now</b>. By the game\'s rules a block that is "being dug" still counts as support. So the game thinks:',
+s2_q3:'"Oh, T is still supported. Don\'t let T fall – stand it back up. The blocks sitting on top of T must all be stood back up too."',
+s2_p3b:'And from T it <b>climbs up one cell at a time</b>, telling each one "you stand too".',
+s2_h4:'Step 4 – Mistake! A ghost block is born',
+s2_cap4:'<p>The cell it climbed into (above T) is empty, but the game did not check and put a "standing" note on it.</p><p>Now a solid cell with no color and no shape exists. = <b>Ghost block</b></p>',
+s2_p4:'Here is the problem. While climbing, the game <b>does not check whether a block really exists in that cell.</b> The cell above T was empty, yet it gets the note "standing still". The result is a <b>solid cell with no color and no shape</b> – a ghost block.',
+s2_p4b:'Incidentally, the game has another "stand back up" routine that does almost the same job, and that one properly checks "is there really a block there?" while climbing. Only this one lacked the check. It looks like a simple mistake made during development.',
+s2_h5:'In the actual game screen',
+s2_moment_list:'<li>Just before the yellow row at the bottom blinks away</li><li>The moment the row vanishes, the Driller digs the green block</li><li><b>Original game</b>: the red dotted cell looks like plain empty space on screen, but inside the game it is already a solid ghost block</li><li><b>After the fix</b>: same moment, and the empty cell stays empty</li>',
+m1:'① Just before the yellow row<br>at the bottom blinks away',m2:'② The row has vanished;<br>the Driller digs the green block',
+m3:'③ Original: an invisible block<br>appears in the red dotted cell',m4:'④ After the fix: same moment,<br>and the empty cell stays empty',
+h3:'3. What does a ghost block do afterwards?',
+s3_a:'Right after it appears, a ghost block gives no sign. The trouble comes later.',
+s3_A_t:'A. A floating block',s3_A_c:'Blue takes the ghost cell below it for a floor and just stands there in mid-air.',
+s3_B_t:'B. A stopped block',s3_B_c:'If the ghost becomes "falling", it has no body and can never finish falling. The yellow above waits forever for it to move. → It stays stuck, and drilling does nothing.',
+s3_A:'<b>A. A floating block</b><br>When a block comes down from above it treats the ghost cell as a floor and stops on top of it. On screen, a block hangs in mid-air over nothing.',
+s3_B:'<b>B. A stopped block, a block that can\'t be dug</b><br>Later, when the surroundings collapse and the ghost block also becomes "falling", things get worse. A ghost has no body (block type), so it can never complete the falling motion. The real block above it thinks "I\'ll go down once the one below moves away" and <b>waits forever.</b> In this game a "falling" block cannot be drilled, so it ends up as a <b>stopped block that can\'t be dug</b>.',
+s3_C:'On top of that, ghost blocks get swept up in the neighbors falling and standing up again, so they <b>keep spreading.</b>',
+ghost:'Ghost',
+s3_h10:'The actual game screen – 10 seconds later',
+s3_10a:'Left is the original game, right is the fixed game. Both show the scene above 10 seconds later. (The Driller did not move in the meantime.)',
+lg_red:'Red cell = a ghost block: invisible on screen but solid inside the game',lg_yel:'Yellow outline = a real block stuck forever in "falling" because of a ghost',
+s3_o_t:'Original game (10 s later)',s3_o_c:'Red = invisible ghost blocks, yellow = blocks stuck forever',
+s3_f_t:'After the fix (10 s later)',s3_f_c:'No ghost blocks, everything normal',
+s3_10b:'On the left the ghost blocks have spread like a long pillar, with blocks hanging in mid-air above it. On the right (after the fix) there is none of that.',
+h4:'4. How often does it happen?',
+s4_a:'Very rarely. You have to dig the block above at <b>the exact 1/60 s in which the row below vanishes</b>, and another block next to it has to lose its footing at the same time. It is almost impossible to do on purpose; during long play sessions it just catches you by chance now and then.',
+s4_b:'In a computer test of 300 runs with randomly changed block layouts and inputs, the original game produced a ghost block 4 times.',
+h5:'5. How was it fixed?',
+s5_cap:'<p><b>After the fix: "Is there really a block there?"</b></p><p>Before climbing one cell it asks first: "Is there really a block that was going to fall there?", "Is it a cell not yet visited?"</p><p>If the cell is empty it stops there. → No ghost block is created.</p>',
+s5_a:'The fix is simple. Before "stand back up" climbs one cell, it first asks:',
+s5_list:'<li>"Is there <b>really</b> a block that was going to fall there?"</li><li>"Is this a cell that has <b>not been visited yet</b>?"</li>',
+s5_b:'It climbs only when both answers are "yes"; on an empty cell it stops. So an empty cell never gets a "standing" note. On top of this we added a <b>safety net</b>: if a block is "falling" but blocked below and cannot move, instead of waiting it is handed back to "judge again", so the game decides afresh whether it should stand or fall. In normal play this safety net is never used; it is only there just in case.',
+s5_h:'How is the game program changed?',
+s5_c:'The game program sits on the ROM board in a scrambled, encrypted-like form, so editing the ROM file directly is hard. Instead, the game starts, <b>unpacks its program into memory</b>, and only the few problem lines are swapped. (There are 15 places in total – a tiny part of the whole program.)',
+s5_plist:'<li><b>MiSTer core</b>: at the moment the program is written to memory, a problem line is replaced by the fixed line as it is written. Save states saved earlier are fixed the same way when loaded. It only acts on Mr. Driller G and has no effect on other games.</li><li><b>GroovyMAME</b>: every frame it inspects those places and, if they still hold the original line, replaces them with the fixed line. Again, only for Mr. Driller G.</li>',
+h6:'6. What is confirmed, and what remains',
+s6_h1:'Confirmed (by running the game automatically in GroovyMAME)',
+s6_ok:'<li>Reproduced a ghost block using only real button inputs (move left + drill); it no longer occurs after the fix</li><li>300 tests with randomized blocks and inputs: original game 4 occurrences → after the fix 0</li><li>Normal play screens (16 patterns × about 30 s) compared frame by frame: block movement in the fixed game is <b>exactly identical</b> to the original → in ordinary non-bug situations the game is unchanged</li>',
+s6_h2:'What remains',
+s6_todo:'<li>MiSTer core: the code is in and has been checked by eye only. Build and real-hardware testing are still to do.</li><li>GroovyMAME: the code is in and only compile-checked. The actual run test is up to the user.</li><li>Of the symptoms, "stopping / floating in the air" was reproduced on screen from this cause. "Can\'t be dug" follows because the stopped block stays in the "falling" state (by the game\'s rules a falling block can\'t be drilled). "Same-colored blocks falling apart", "stopping while blinking" and "stopping across cells" are likely caused by the same ghost block, but we could not re-create them on screen directly.</li><li>Whether Mr. Driller 2 has the same problem has not been checked yet. If so, it will be fixed separately.</li>',
+h7:'Developer notes',
+dev:'<li>MiSTer core: <code>rtl/ns10/ns10_codepatch.sv</code> (table of patch locations and original/new values), wired up in <code>NAMCOS10.sv</code></li><li>GroovyMAME: <code>ns10_patch_mrdrilrg</code> in <code>src/mame/namco/namcos10.cpp</code> (the same table)</li><li>The two tables must be identical. A patch is applied only when the original value matches, so data of other game versions is never touched.</li>',
+me:'Me',
+tFlash:'Flash',tFall:'Fall!',tDig:'Digging',tStand:'Re-stand'
+},
+ja:{
+title:'ミスタードリラーG「ゴーストブロック」バグの話',
+intro1:'ミスタードリラーGを遊んでいると、ごくまれにこんなことが起こります。',
+intro_list:'<li>落ちていたブロックがその場で<b>ピタッと止まる</b></li><li>止まったブロックをドリルで掘っても<b>掘れない</b></li><li>下に何も支えがないのにブロックが<b>空中に浮いている</b></li><li>くっついているはずの同じ色のブロックが別々に動いたり、点滅して消える途中で止まったブロックが見える</li>',
+intro2:'このドキュメントでは、これが<b>なぜ</b>起こるのかを図でゆっくり説明します。難しい言葉はなるべく使っていないので、気軽に読んでください。',
+h1:'1. まず、ゲームはブロックをどう覚えている？',
+s1_a:'ゲーム画面は碁盤の目のように<b>マス</b>に分かれています。ゲームは1マスごとに小さなメモを2枚貼っています。',
+s1_list:'<li><b>どんなブロックか</b> – 青、緑、黄、茶（Xブロック）…または空マス</li><li><b>今なにをしているか</b> – 次のどれか<ul><li>じっと立っている</li><li>ぐらぐら揺れている（もうすぐ落ちる）</li><li>落下中</li><li>点滅して消えている最中</li><li>ドリルで掘られている最中</li></ul></li>',
+s1_b:'ゲームは1秒に60回、盤面全体を見渡してこのメモを読み、「このブロックはもう落ちよう」「これは消そう」と決めています。',
+s1_c:'大事なのは<b>2枚のメモが食い違ってはいけない</b>ということです。「空マス」なのに「じっと立っている」というメモが付いたらどうなるでしょう？ → 画面には何も見えないのに、ゲームは<b>そこに硬いブロックがある</b>と思い込みます。このドキュメントではこれを<b>ゴーストブロック</b>と呼びます。',
+h2:'2. ゴーストブロックが生まれる瞬間',
+s2_legend_intro:'下の図の文字は次のように読んでください。',
+s2_legend:'<li><b>私</b> = ドリラー（プレイヤー）</li><li><b>D</b> = ドリラーのすぐ隣の緑ブロック（これから掘るブロック）</li><li><b>E</b> = Dの左の青ブロック</li><li><b>N, T</b> = その上の緑と黄色のブロック</li><li>いちばん下の黄色い列 = いま点滅して消えている最中</li>',
+s2_h1:'ステップ1 – 準備',
+s2_cap1:'<p>いちばん下の黄色い列が点滅して消えている最中。</p><p>ドリラー（私）は緑のDのすぐ隣に立っている。</p><p>Tの上のマス（真ん中の上）はただの空マス。</p>',
+s2_p1:'いちばん下の黄色い列が点滅しながら消えています。ドリラーは緑のDの隣に立っています。ここまではごく普通の場面です。',
+s2_h2:'ステップ2 – ちょうど同じ瞬間に2つのことが重なる（1/60秒）',
+s2_cap2:'<p>黄色い列が消えたまさにその瞬間、ドリラーがDを掘る。</p><p>青Eは足元が空いたので「落ちる！」と印を付け、くっついているN、Tにも「一緒に落ちよう」と印を付ける。</p>',
+s2_p2:'黄色い列が消える<b>まさにその瞬間</b>（1/60秒、画面1枚ぶんの差）に、ドリラーがDを掘ります。',
+s2_p2_list:'<li>青Eは足元の黄色い列がなくなったので「落ちる！」と印を付けます。</li><li>このときゲームは、Eに接しているブロック（N、そしてNの隣のT）にも「一緒に落ちよう」と印を付けます。</li>',
+s2_h3:'ステップ3 – ゲームがもう一度確認する',
+s2_cap3:'<p>ゲーム:「Tの下には今掘られているDがあるな？ ならTはまだ支えられている。Tは立て直せ！」</p><p>そしてTの上へ1マスずつ上がりながら「お前も立っていろ」と伝える。</p>',
+s2_p3:'ところがゲームがTをもう一度見ると、Tのすぐ下には<b>いま掘られているD</b>があります。ゲームのルールでは「掘られている最中」のブロックはまだ支えとして扱われます。そこでゲームはこう考えます。',
+s2_q3:'「おや、Tはまだ支えられているぞ。Tは落とさずに立て直そう。Tの上に乗っているブロックもまとめて立て直さなきゃ。」',
+s2_p3b:'そしてTから<b>1マスずつ上へ上がりながら</b>「お前も立っていろ」と伝えていきます。',
+s2_h4:'ステップ4 – ミス！ ゴーストブロック誕生',
+s2_cap4:'<p>上がった先のマス（Tの上）は空マスなのに、ゲームはそれを確認せず「立っている」印を付けてしまった。</p><p>こうして色も形もないのに硬いマスができてしまう。= <b>ゴーストブロック</b></p>',
+s2_p4:'ここで問題が起きます。上へ上がるとき、ゲームは<b>そのマスに本当にブロックがあるか確認しません。</b>Tの上のマスはもともと空マスだったのに、「じっと立っている」というメモが付いてしまいます。その結果、<b>色も形もないのに硬いマス</b>、つまりゴーストブロックができてしまいます。',
+s2_p4b:'ちなみにゲームの中にはこれとほぼ同じことをする「立て直し」がもう1つあり、そちらは上へ上がるときに「そこに本当にブロックがあるか？」をきちんと確認しています。こちらだけその確認が抜けていたのです。開発時の単純なミスと思われます。',
+s2_h5:'実際のゲーム画面で見ると',
+s2_moment_list:'<li>下の黄色い列が点滅して消える直前</li><li>列が消えた瞬間、ドリラーが緑ブロックを掘る</li><li><b>元のゲーム</b>: 赤い点線のマスは画面上はただの空きですが、ゲームの中ではすでに硬いゴーストブロックです</li><li><b>修正後</b>: まったく同じ瞬間でも、空マスは空マスのままです</li>',
+m1:'① 下の黄色い列が点滅して<br>消える直前',m2:'② 列が消えた瞬間<br>ドリラーが緑ブロックを掘る',
+m3:'③ 元のゲーム: 赤い点線のマスに<br>見えないブロックができる',m4:'④ 修正後: 同じ瞬間でも<br>空マスは空マスのまま',
+h3:'3. ゴーストブロックはその後どうなる？',
+s3_a:'ゴーストブロックは、できた直後には何の兆候もありません。問題はその後です。',
+s3_A_t:'A. 空中に浮いたブロック',s3_A_c:'青は下のゴーストのマスを床だと思い込み、空中にそのまま立っている。',
+s3_B_t:'B. 止まってしまったブロック',s3_B_c:'ゴーストが「落下中」になると、体がないので最後まで落ちきれない。上の黄色はゴーストがどくのを永遠に待つ。→ 止まったまま、ドリルでも掘れない。',
+s3_A:'<b>A. 空中に浮いたブロック</b><br>上からブロックが降りてくると、ゴーストのマスを床だと思ってその上に乗ります。画面で見ると、何もない場所の上にブロックがふわふわ浮いています。',
+s3_B:'<b>B. 止まってしまったブロック、掘れないブロック</b><br>あとで周りが崩れてゴーストブロックも「落下中」になると、もっと大きな問題が起きます。ゴーストには体（ブロックの種類）がないので、落下の動作を最後まで終えられません。その上の本物のブロックは「下がどいたら降りよう」と<b>永遠に待ち続けます。</b>このゲームでは「落下中」のブロックはドリルで掘れない決まりなので、結局<b>止まったまま掘れないブロック</b>になります。',
+s3_C:'さらにゴーストブロックは、周りのブロックが落ちたり立ち直ったりする流れに巻き込まれて<b>だんだん広がります。</b>',
+ghost:'ゴースト',
+s3_h10:'実際のゲーム画面 – 10秒後',
+s3_10a:'左は元のゲーム、右は修正後のゲームです。どちらも上の場面から10秒たった様子です。（その間ドリラーは動いていません。）',
+lg_red:'赤いマス = 画面には見えないがゲーム内では塞がっているゴーストブロック',lg_yel:'黄色い枠 = ゴーストのせいで「落下中」のまま永遠に止まった本物のブロック',
+s3_o_t:'元のゲーム（10秒後）',s3_o_c:'赤 = 見えないゴーストブロック、黄 = 永遠に止まったブロック',
+s3_f_t:'修正後（10秒後）',s3_f_c:'ゴーストブロックなし、すべて正常',
+s3_10b:'左を見ると、ゴーストブロックが柱のように長く広がり、その上でブロックが宙にぶら下がっています。右（修正後）にはこうしたものが1つもありません。',
+h4:'4. どのくらいの頻度で起こる？',
+s4_a:'とてもまれです。下の列が<b>消えるまさにその1/60秒</b>に、その上のブロックを掘らなければならず、しかも隣に同時に足元を失うブロックも必要です。狙って起こすのはほぼ不可能で、長く遊んでいるうちにたまたま1回ひっかかる程度です。',
+s4_b:'コンピューターでブロック配置と入力をでたらめに変えながら300回試したところ、元のゲームでは4回ゴーストブロックが発生しました。',
+h5:'5. どう直した？',
+s5_cap:'<p><b>修正後「そこに本当にブロックある？」</b></p><p>1マス上がる前にまず尋ねる:「そこに落ちるはずのブロックは本当にある？」「まだ立ち寄っていないマス？」</p><p>空マスならそこで止まる。→ ゴーストブロックができない。</p>',
+s5_a:'直した内容は単純です。「立て直し」で1マス上がる前に、まず尋ねます。',
+s5_list:'<li>「そこに落ちるはずだったブロックは<b>本当にある？</b>」</li><li>「<b>まだ立ち寄っていない</b>マス？」</li>',
+s5_b:'両方「はい」のときだけ上がり、空マスならそこで止まります。これで空マスに「立っている」メモが付くことがなくなります。ここに<b>安全装置</b>をもう1つ付けました。万一「落下中」なのに下が塞がっていて動けないブロックができたら、ただ待たずに「もう一度判断して」へ回し、ゲームが立つか落ちるかを改めて決め直します。通常のプレイではこの安全装置が使われることはありません。念のためのものです。',
+s5_h:'ゲームプログラムをどう書き換える？',
+s5_c:'ゲームのプログラムはROMボードの中で暗号のように並べ替えられた状態で入っているため、ROMファイルを直接直すのは困難です。そこでゲームが起動してプログラムを<b>メモリに全部展開したあと</b>、問題の数行だけを差し替えます。（直す箇所は全部で15か所、プログラム全体のごくわずかな部分です。）',
+s5_plist:'<li><b>MiSTerコア</b>: プログラムがメモリに書き込まれる瞬間、問題の行なら修正済みの行に置き換えて書き込みます。以前保存したセーブステートを読み込むときも同じ方法で直ります。ミスタードリラーGでのみ動作し、他のゲームには何の影響もありません。</li><li><b>GroovyMAME</b>: 画面1枚ごとにその場所を調べ、まだ元の行なら修正済みの行に置き換えます。こちらもミスタードリラーGでのみ動作します。</li>',
+h6:'6. 確認できたこと、まだ残っていること',
+s6_h1:'確認できたこと（GroovyMAMEでゲームを自動で動かして確認）',
+s6_ok:'<li>実際のボタン入力（左移動＋ドリル）だけでゴーストブロックができる場面を再現し、修正後は発生しないことを確認</li><li>ブロックと入力をランダムに変えた300回のテスト: 元のゲームで4回発生 → 修正後は0回</li><li>通常のプレイ画面（16パターン×約30秒）を1フレームずつ比較: 修正後と元のゲームのブロックの動きは<b>完全に同一</b> → バグではない普通の状況ではゲームがまったく変わらない</li>',
+s6_h2:'まだ残っていること',
+s6_todo:'<li>MiSTerコア: コードを入れて目で確認しただけです。ビルドと実機テストはまだです。</li><li>GroovyMAME: コードを入れてコンパイル確認だけしました。実際の動作テストはユーザーが行います。</li><li>症状のうち「止まる／空中に浮く」はこの原因で画面上に直接再現できました。「掘れない」は、止まったブロックが「落下中」の状態のまま残るためです（ゲームのルール上、落下中のブロックは掘れません）。「同じ色同士が別々に落ちる」「点滅したまま止まる」「マスの間にまたがって止まる」も同じゴーストブロックが原因の可能性が高いですが、画面で直接再現はできていません。</li><li>ミスタードリラー2にも同じ問題があるかはまだ確認していません。確認後、別途修正する予定です。</li>',
+h7:'開発者向けメモ',
+dev:'<li>MiSTerコア: <code>rtl/ns10/ns10_codepatch.sv</code>（修正位置と元の値／新しい値の表）、接続は <code>NAMCOS10.sv</code></li><li>GroovyMAME: <code>src/mame/namco/namcos10.cpp</code> の <code>ns10_patch_mrdrilrg</code>（同じ表）</li><li>2つの表は同一でなければなりません。元の値が一致したときだけ書き換えるので、他バージョンのゲームデータには手を触れません。</li>',
+me:'私',
+tFlash:'点滅',tFall:'落ちる',tDig:'掘り中',tStand:'再び立つ'
+}};
+</script>
+<script>
+const G10={"orig": {"cells": ["GB.B........BBB", "XB..........BBB", "XBB....Y.....BB", "GBB....B.....BY", "GBXXG..B.....BB", "GBXBG..X.....BB", "YBGBB..BX....XG", "BXBXX..YG...BXB", "BGGGG..XY...BYG", "BXGBG..XG....YX", "GGYG....XGBY.BX", "BBGXY.....BYGBB", "BBGBB.....BBBGB", "BGXB...Y..BYGGB", "BBBBB.YBBYBBBGB", "YBGBGBBB..BBGGB", "BGYGGBGGBGBBBBX", "GXXBBBGXGXBGGBG", "GBGGYGBGYGBBBBX"], "flags": ["---------------", "-------R-------", "--------R------", "--------R------", "--------R------", "--------R-R----", "---------RR----", "---------RR----", "---------RRR---", "---------RRR---", "-------R-Y-----", "-------RRR-----", "-------RRR-----", "--------RR-----", "---------Y-----", "---------R-----", "---------------", "---------------", "---------------"]}, "fixed": {"cells": ["GB.B....GGBBBBB", "XB.......GYBBGB", "XBB....Y.GBGBGB", "GBB...BB.YBGBGX", "GBXXG..GGBBBBBB", "GBXBG..GYXYYGBB", "YBGBB...BBGGBBG", "BXBXX.....XXBGG", "BGGGG.....BBBBB", "BXGBGBX....XGYG", "GGYGBBXX..BYGBG", "BBGXY..Y..BYGBB", "BBGBB..Y..BBBGB", "BGXB..XYG.BYGGB", "BBBBB.YBB.BBBGB", "YBGBGBBB..BBGGB", "BGYGGBGGBGBBBBX", "GXXBBBGXGXBGGBG", "GBGGYGBGYGBBBBX"], "flags": ["---------------", "---------------", "---------------", "---------------", "---------------", "---------------", "---------------", "---------------", "---------------", "---------------", "---------------", "---------------", "---------------", "---------------", "---------------", "---------------", "---------------", "---------------", "---------------"]}};
+/* ---------- board builder ---------- */
+function board(el,o){
+  const rows=o.rows, R=rows.length, C=rows[0].length;
+  el.style.setProperty('--cols',C);
+  el.innerHTML='';
+  const same=(c,r,ch)=>r>=0&&r<R&&c>=0&&c<C&&rows[r][c]===ch;
+  for(let r=0;r<R;r++)for(let c=0;c<C;c++){
+    const ch=rows[r][c], d=document.createElement('div'); d.className='cell';
+    if('BGYX'.includes(ch)){
+      d.classList.add('k-'+ch);
+      const b=document.createElement('div'); b.className='b';
+      if(o.merge){
+        const u=same(c,r-1,ch),dn=same(c,r+1,ch),l=same(c-1,r,ch),rt=same(c+1,r,ch);
+        b.style.borderRadius=[(!u&&!l)?'6px':0,(!u&&!rt)?'6px':0,(!dn&&!rt)?'6px':0,(!dn&&!l)?'6px':0].join(' ');
+      }
+      if(ch==='X')b.textContent='×';
+      const lab=o.labels&&o.labels[c+','+r]; if(lab)b.textContent=lab;
+      d.appendChild(b);
+    }
+    if(ch==='S'||ch==='s'){const s=document.createElement('div');s.className='sp'+(ch==='s'?' weak':'');d.appendChild(s);}
+    if(ch==='P'){const m=document.createElement('div');m.className='me';m.textContent=o.me||'';d.appendChild(m);}
+    if(o.ghost&&o.ghost.some(p=>p[0]===c&&p[1]===r)){const x=document.createElement('div');x.className='ghost';x.textContent=o.ghostLabel||'';d.appendChild(x);}
+    const bx=o.boxes&&o.boxes[c+','+r]; if(bx){const x=document.createElement('div');x.className='box'+(bx==='Y'?' y':'');d.appendChild(x);}
+    const tg=o.tags&&o.tags[c+','+r]; if(tg){const t=document.createElement('div');t.className='tag';t.textContent=tg;d.appendChild(t);}
+    el.appendChild(d);
+  }
+  if(o.svg){
+    const ns='http://www.w3.org/2000/svg',s=document.createElementNS(ns,'svg');
+    s.setAttribute('viewBox','0 0 '+C+' '+R);s.setAttribute('preserveAspectRatio','none');
+    s.innerHTML='<defs><marker id="mk'+el.id+'" markerWidth="4" markerHeight="4" refX="2" refY="2" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L4,2 L0,4 z" fill="'+o.svg.color+'"/></marker></defs>'
+      +'<path d="'+o.svg.d+'" fill="none" stroke="'+o.svg.color+'" stroke-width=".07" marker-end="url(#mk'+el.id+')"/>';
+    el.appendChild(s);
+  }
+}
+const P=(c,r)=>c+','+r;
+function render(L){
+  const t=T[L];
+  document.documentElement.lang=L;
+  document.title={ko:'미스터 드릴러 G 유령 블록',en:'Mr. Driller G Ghost Block',ja:'ミスタードリラーG ゴーストブロック'}[L];
+  document.querySelectorAll('[data-i]').forEach(e=>{e.innerHTML=t[e.dataset.i]||''});
+  document.querySelectorAll('#langbar button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.lang===L));
+  const base={me:t.me,ghostLabel:t.ghost,labels:{'0,2':'N','1,2':'T','0,3':'E','1,3':'D'}};
+  const rows5=['...','...','GY.','BGP','SS.'];
+  const t2={[P(0,2)]:t.tFall,[P(1,2)]:t.tFall,[P(0,3)]:t.tFall,[P(1,3)]:t.tDig};
+  const t3={[P(0,2)]:t.tFall,[P(1,2)]:t.tStand,[P(0,3)]:t.tFall,[P(1,3)]:t.tDig};
+  board(document.getElementById('step1'),{...base,rows:['...','...','GY.','BGP','YY.'],tags:{[P(0,4)]:t.tFlash,[P(1,4)]:t.tFlash}});
+  board(document.getElementById('step2'),{...base,rows:rows5,tags:t2,svg:{color:'#fff',d:'M.87,3.3 V2.47 H1.46'}});
+  board(document.getElementById('step3'),{...base,rows:rows5,tags:t3,svg:{color:'#e63946',d:'M1.88,2.3 V1.5'}});
+  board(document.getElementById('step4'),{...base,rows:rows5,tags:t3,ghost:[[1,1]],svg:{color:'#e63946',d:'M1.88,2.3 V1.55'}});
+  board(document.getElementById('stepFix'),{...base,rows:rows5,tags:t3,svg:{color:'#2e9d4a',d:'M1.88,2.3 V1.5'}});
+  // game-screen close-ups
+  const m0=['.GYXYYG','..BBGGB','....XXB','X.GYBBB','XXBGPXG','GYSSBYG','XYSSBYG'];
+  const m1=m0.map((r,i)=>i>=5?r.replace(/S/g,'s'):r);
+  const m2=m0.map((r,i)=>i>=5?r.replace(/S/g,'.'):r);
+  const mom=document.getElementById('moment');mom.innerHTML='';
+  [[m0,t.m1,0],[m1,t.m2,0],[m2,t.m3,1],[m2,t.m4,1]].forEach(([rw,cap,gh],i)=>{
+    const pane=document.createElement('div');pane.className='pane';pane.style.flex="0 0 auto";pane.style.minWidth="0";
+    const b=document.createElement('div');b.className='board sm merge nogrid';b.id='mm'+i;pane.appendChild(b);
+    const c=document.createElement('p');c.className='cap';c.innerHTML=cap;pane.appendChild(c);mom.appendChild(pane);
+    board(b,{rows:rw,merge:true,ghost:gh?[[3,2]]:null});
+  });
+  board(document.getElementById('gA'),{rows:['.B.','.B.','...','...','G.G'],ghost:[[1,2]],ghostLabel:t.ghost});
+  board(document.getElementById('gB'),{rows:['...','...','.Y.','...','GGG'],ghost:[[1,3]],ghostLabel:t.ghost});
+  [['g10o','orig'],['g10f','fixed']].forEach(([id,k])=>{
+    const d=G10[k],rows=d.cells.map(r=>r.replace(/\?/g,'.')),boxes={};
+    rows[9]=rows[9].substring(0,10)+'P'+rows[9].substring(11);
+    d.flags.forEach((f,r)=>{for(let c=0;c<f.length;c++)if(f[c]!=='-')boxes[P(c,r)]=f[c]==='Y'?'Y':'R';});
+    board(document.getElementById(id),{rows,merge:true,boxes});
+  });
+}
+let saved=null;try{saved=localStorage.getItem('lang')}catch(e){}
+const q=new URLSearchParams(location.search).get('lang');
+let lang=[q,saved,(navigator.language||'en').slice(0,2)].find(x=>x&&T[x])||'en';
+document.querySelectorAll('#langbar button').forEach(b=>b.onclick=()=>{lang=b.dataset.lang;try{localStorage.setItem('lang',lang)}catch(e){};render(lang)});
+render(lang);
+</script>
+</body>
+</html>

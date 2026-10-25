@@ -1,0 +1,140 @@
+Optional 2x VBlank IRQ10 source for Namco_System_10_MiSTer (base 8a8c283)
+
+OSD Hardware > "IRQ10 (Input)": 100Hz (default, unchanged, = MAME) / 2xVBlank.
+2xVBlank sends the same I/O IRQ10 pulse (int status bit 3) at 1/4 and 3/4 of the
+last measured frame length after each VBlank rising edge: two per frame
+(~119.88/s at 59.94 Hz). The 100 Hz counter keeps running; only its pulse is
+gated. The CD-ROM IRQ10 path is unchanged.
+
+Why: the real-board IRQ10 source is unknown (MAME: TODO). Mr. Driller 2 / G
+store IN1 on every other IRQ10, so 100 Hz gives 50 input samples/s (beats
+against 59.94 fps); 2x VBlank gives exactly one sample per frame. On our core
+(Driller 2/G, Gamshara, Star Trigon) it was smoother and matched real-board
+rapid-fire videos. Other games (Taiko CD IRQ10, guns, NFL, ...) were NOT
+tested - that's why it is an option and 100Hz stays the default.
+
+Files: rtl/s10_io.sv (+irq10_vbl, +vblank inputs), Namco_S10.sv (OSD bit 65,
+psx_vbl), sim/system/tb_s10.template.vhd (new ports tied to '0').
+Unit test: tb_s10_io_irq10.sv (ModelSim/Questa: vlog -sv s10_io.sv
+tb_s10_io_irq10.sv; vsim -c tb_irq10 -do "run -all") -> PASS
+(100 Hz spacing 338688 clk; 2x VBlank offsets 1/4,3/4 of frame +-2 clk, 2 per
+frame; CD INTRQ still raises IRQ10).
+Background: docs/rapid-fire-irq-eng.md of the namcos10 core.
+Apply: git apply namco_s10-irq10-2xvblank.patch
+
+diff --git a/Namco_S10.sv b/Namco_S10.sv
+index e0ca646..864ddb3 100644
+--- a/Namco_S10.sv
++++ b/Namco_S10.sv
+@@ -406,6 +406,7 @@ parameter CONF_STR = {
+ 	"P3,Hardware;",
+ 	"P3-;",
+ 	"P3O[64],Pause when OSD open,Off,On;",
++	"P3O[65],IRQ10 (Input),100Hz,2xVBlank;",
+ 	"-;",
+ 	"R0,Reset;",
+ 	"J1,Button 1,Button 2,Button 3,Button 4,Button 5,Button 6,Start,Coin,Test,Service,Pause;",
+@@ -1224,6 +1225,8 @@ s10_io s10_io
+ 	.gun_y0     (gun_y0),
+ 	.gun_x1     (gun_x1),
+ 	.gun_y1     (gun_y1),
++	.irq10_vbl  (status[65]),
++	.vblank     (psx_vbl),
+ 	.cd_intrq   (cd_intrq),
+ 	.irq10      (s10_irq10)
+ );
+diff --git a/rtl/s10_io.sv b/rtl/s10_io.sv
+index ef86041..58903f4 100644
+--- a/rtl/s10_io.sv
++++ b/rtl/s10_io.sv
+@@ -10,7 +10,7 @@
+ //   BA0004 R   IN1 bits 15-0     BA0006 R  IN1 bits 31-16  (32-bit JAMMA inputs, active low)
+ //   BA0008 R/W I2C clock          BA000A R/W I2C data  (bit-banged; the device ACKs every byte, as in MAME)
+ //   BA0012/14/16/18 W  interrupt acknowledge, bit 0/1/2/3
+-//   BA001A R   interrupt status: bit 3 = I/O update (100 Hz), bit 2 = CD-ROM, bit 1 = EXIO
++//   BA001A R   interrupt status: bit 3 = I/O update (100 Hz or 2x VBlank), bit 2 = CD-ROM, bit 1 = EXIO
+ //   BF0000 R   CD-ROM present probe: 1
+ // EXIO(G) light-gun board (exio_ident != 0xFF; MAME namcos10_map_exio_inner, mirrored at 0x1FE00000):
+ //   E80000/E88000 R  P1 X bits 5-0 / 21-6     E90000/E98000 R  P1 Y bits 5-0 / 21-6
+@@ -19,6 +19,9 @@
+ //   (lamps / coin counters at E40000-E48000, gun re-arm at EC0000/EC8000).
+ //   B20000, B60000 (watchdog), BC0000 (ATA): ignored / read 0
+ // A 100 Hz timer sets status bit 3 and pulses IRQ10 (MAME io_update_interrupt_callback).
++// Optional (OSD IRQ10 = 2xVBlank): the same pulse at 1/4 and 3/4 of the last frame length after each VBlank,
++// two per frame (~119.88/s). The real-board IRQ10 source is unknown (MAME: TODO); Mr. Driller 2/G store IN1
++// on every other IRQ10, so 2x VBlank gives one input sample per frame (100 Hz: 50 samples/s).
+ module s10_io #(
+     parameter int CLK_HZ = 33_868_800
+ ) (
+@@ -38,6 +41,8 @@ module s10_io #(
+     input  wire  [7:0] exio_ident,      // 0xFF = no expansion board
+     input  wire  [8:0] gun_x0, gun_y0,  // light-gun positions (MAME EXIO_LIGHTGUN ports: X 0..319, Y 0..239)
+     input  wire  [8:0] gun_x1, gun_y1,
++    input  wire        irq10_vbl,        // IRQ10 source: 0 = 100 Hz timer (MAME), 1 = 2x VBlank
++    input  wire        vblank,           // PSX VBlank (clk domain), rising edge = frame start
+     input  wire        cd_intrq,         // ATAPI INTRQ (level): status bit 2 + IRQ10 (MAME cdrom_interrupt)
+ 
+     output reg         irq10 = 1'b0     // IRQ10 request (one clock pulse)
+@@ -48,6 +53,13 @@ module s10_io #(
+     reg  [3:0] intst = 0;
+     reg        cd_q = 1'b0;
+ 
++    // 2x VBlank: IRQ10 at 1/4 and 3/4 of the last frame length after each VBlank rising edge
++    localparam int FRAME_NOM = (CLK_HZ / 2997) * 50;   // 59.94 Hz, used until the first frame is measured
++    reg        vbl_q = 1'b0;
++    reg [21:0] fcnt = 0, fper = FRAME_NOM[21:0];
++    wire       vbl_rise = vblank & ~vbl_q;
++    wire       vbl_tick = (fcnt == {2'b00, fper[21:2]}) || (fcnt == {2'b00, fper[21:2]} + {1'b0, fper[21:1]});
++
+     // ------------------------------------------------------------------ EXIO ident shifter
+     reg  [2:0] exio_bit  = 3'd7;
+     reg  [5:0] exio_byte = 0;
+@@ -132,6 +144,9 @@ module s10_io #(
+         if (reset) begin
+             tcnt      <= 0;
+             intst     <= 0;
++            fcnt      <= 0;
++            fper      <= FRAME_NOM[21:0];
++            vbl_q     <= 1'b0;
+             exio_bit  <= 3'd7;
+             exio_byte <= 0;
+             host_clk  <= 1'b1; host_dat <= 1'b1;
+@@ -142,9 +157,15 @@ module s10_io #(
+         end else begin
+             if (tcnt == TICK - 1) begin
+                 tcnt     <= 0;
+-                intst[3] <= 1'b1;
+-                irq10    <= 1'b1;
++                if (!irq10_vbl) begin
++                    intst[3] <= 1'b1;
++                    irq10    <= 1'b1;
++                end
+             end else tcnt <= tcnt + 1'd1;
++            // 2x VBlank: IRQ10 at 1/4 and 3/4 of the last frame length after each VBlank rising edge
++            vbl_q <= vblank;
++            if (vbl_rise) begin fcnt <= 0; fper <= fcnt; end else if (~&fcnt) fcnt <= fcnt + 1'd1;
++            if (irq10_vbl && vbl_tick && !vbl_rise) begin intst[3] <= 1'b1; irq10 <= 1'b1; end
+             // CD-ROM interrupt: bit 2 follows INTRQ (set on assert, cleared on deassert or ack), IRQ10 on assert
+             cd_q <= cd_intrq;
+             if (cd_intrq && !cd_q) begin intst[2] <= 1'b1; irq10 <= 1'b1; end
+diff --git a/sim/system/tb_s10.template.vhd b/sim/system/tb_s10.template.vhd
+index 57a7b71..64a308d 100644
+--- a/sim/system/tb_s10.template.vhd
++++ b/sim/system/tb_s10.template.vhd
+@@ -42,6 +42,7 @@ architecture sim of tb_s10 is
+          exio_ident : in std_logic_vector(7 downto 0);
+          gun_x0 : in std_logic_vector(8 downto 0); gun_y0 : in std_logic_vector(8 downto 0);
+          gun_x1 : in std_logic_vector(8 downto 0); gun_y1 : in std_logic_vector(8 downto 0);
++         irq10_vbl : in std_logic; vblank : in std_logic;
+          cd_intrq : in std_logic; irq10 : out std_logic
+       );
+    end component;
+@@ -271,7 +272,7 @@ begin
+          rd => s10_rd, wr => s10_wr, rdata => io_rdata,
+          dsw => x"00", in1 => tb_in1, exio_ident => b_exio,
+          gun_x0 => '0' & x"A0", gun_y0 => '0' & x"78", gun_x1 => '0' & x"A0", gun_y1 => '0' & x"78",
+-         cd_intrq => '0', irq10 => s10_irq10
++         irq10_vbl => '0', vblank => '0', cd_intrq => '0', irq10 => s10_irq10
+       );
+ 
+    imem : s10_mem
