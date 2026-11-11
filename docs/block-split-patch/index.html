@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mr. Driller G Split Block</title>
+<style>
+:root{
+  --bg:#f6f7f9;--fg:#1f2430;--muted:#5b6475;--card:#fff;--line:#d9dde5;--accent:#2a62d9;
+  --board:#3c4252;--grid:#8b91a0;--blue:#6a8fe8;--green:#6dc96d;--yellow:#f2c744;--brown:#8a4a22;
+  --ok:#2e9d4a;--tagbg:#fff;--tagfg:#a01010;
+}
+@media (prefers-color-scheme:dark){
+  :root{--bg:#171a21;--fg:#e6e9f0;--muted:#9aa3b5;--card:#20242e;--line:#343a48;--accent:#7aa2ff;}
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.75 "Segoe UI","Malgun Gothic","Yu Gothic UI","Meiryo",system-ui,sans-serif}
+header{position:sticky;top:0;z-index:5;background:var(--card);border-bottom:1px solid var(--line)}
+header .in{max-width:900px;margin:0 auto;padding:8px 16px;display:flex;justify-content:flex-end;gap:6px}
+header button{border:1px solid var(--line);background:transparent;color:var(--fg);padding:6px 14px;border-radius:8px;font:inherit;font-size:14px;cursor:pointer}
+header button[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:#fff}
+main{max-width:900px;margin:0 auto;padding:8px 16px 64px}
+h1{font-size:1.8rem;line-height:1.3;margin:28px 0 12px}
+h2{font-size:1.35rem;margin:40px 0 8px;padding-top:16px;border-top:1px solid var(--line)}
+h3{font-size:1.1rem;margin:28px 0 6px}
+li{margin:2px 0}
+code{background:rgba(127,127,127,.18);padding:1px 6px;border-radius:4px;font-size:.92em}
+blockquote{margin:12px 0;padding:6px 16px;border-left:4px solid var(--accent);background:rgba(127,127,127,.1);border-radius:0 8px 8px 0}
+.fig{display:flex;gap:20px;align-items:flex-start;margin:14px 0;flex-wrap:wrap}
+.fig .cap{flex:1 1 220px;min-width:200px}
+.fig .cap p{margin:0 0 .8em}
+.row{display:flex;gap:16px;flex-wrap:wrap;margin:14px 0;align-items:flex-start}
+.pane{flex:1 1 280px;min-width:240px}
+.pane h4{margin:0 0 6px;font-size:1.02rem}
+.pane .cap{margin:8px 0 0;font-size:.92rem;line-height:1.55}
+.bad{color:#d33}.good{color:var(--ok)}
+.shot{margin:14px 0}
+.shot img{display:block;width:100%;height:auto;border-radius:8px;border:1px solid var(--line)}
+.shot .cap{margin:6px 0 0;font-size:.92rem;line-height:1.55;color:var(--muted)}
+/* board */
+.board{position:relative;display:grid;background-color:var(--board);--cs:76px;width:max-content;max-width:100%;
+  grid-template-columns:repeat(var(--cols),var(--cs));grid-auto-rows:var(--cs);
+  background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+  background-size:var(--cs) var(--cs);outline:1px solid var(--grid);outline-offset:-1px}
+.board.sm{--cs:min(60px,14vw)}
+.cell{position:relative}
+.cell .b{position:absolute;inset:3px;border-radius:10px;display:flex;align-items:flex-start;justify-content:flex-start;
+  font-weight:700;color:#1d2a1d;font-size:calc(var(--cs)*.22);padding:calc(var(--cs)*.05) calc(var(--cs)*.1);
+  box-shadow:inset 0 0 0 2px rgba(0,0,0,.55)}
+.cell .b.glue{inset:3px 0}
+.cell .b.glue-l{left:0}.cell .b.glue-r{right:0}
+.k-B .b{background:var(--blue)}.k-G .b{background:var(--green)}.k-Y .b{background:var(--yellow)}
+.tag{position:absolute;left:50%;bottom:calc(var(--cs)*.05);transform:translateX(-50%);white-space:nowrap;
+  background:var(--tagbg);color:var(--tagfg);font-weight:700;border-radius:6px;padding:0 5px;line-height:1.35;
+  font-size:calc(var(--cs)*.15);z-index:4}
+.tag.g{color:#1c7a36}
+.sp{position:absolute;inset:0;
+  background:radial-gradient(circle at 20% 70%,#e6bf56 0 9%,transparent 10%),
+  radial-gradient(circle at 45% 55%,#e6bf56 0 9%,transparent 10%),
+  radial-gradient(circle at 70% 70%,#e6bf56 0 9%,transparent 10%),
+  radial-gradient(circle at 30% 85%,#e6bf56 0 9%,transparent 10%),
+  radial-gradient(circle at 58% 82%,#e6bf56 0 9%,transparent 10%),
+  radial-gradient(circle at 82% 52%,#e6bf56 0 9%,transparent 10%)}
+.me{position:absolute;inset:14%;border-radius:50%;background:#eee;border:3px solid #d62828;color:#d62828;
+  display:flex;align-items:center;justify-content:center;font-weight:700;font-size:calc(var(--cs)*.3);z-index:2}
+.board.sm .me{border-width:2px;inset:10%}
+.dash{position:absolute;inset:3px;border:3px dashed #ff5a5a;border-radius:10px;z-index:1}
+.board svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:3}
+</style>
+</head>
+<body>
+<header><div class="in" id="langbar">
+  <button data-lang="ko">한국어</button><button data-lang="en">English</button><button data-lang="ja">日本語</button>
+</div></header>
+<main>
+<h1 data-i="title"></h1>
+<p data-i="intro1"></p>
+<ul data-i="intro_list"></ul>
+<p data-i="intro2"></p>
+
+<h2 data-i="h1"></h2>
+<p data-i="s1_a"></p>
+<ul data-i="s1_list"></ul>
+<p data-i="s1_b"></p>
+<p data-i="s1_c"></p>
+
+<h2 data-i="h2"></h2>
+<p data-i="s2_legend_intro"></p>
+<ul data-i="s2_legend"></ul>
+
+<h3 data-i="s2_h1"></h3>
+<div class="fig"><div class="board" id="st1"></div><div class="cap" data-i="s2_cap1"></div></div>
+
+<h3 data-i="s2_h2"></h3>
+<div class="fig"><div class="board" id="st2"></div><div class="cap" data-i="s2_cap2"></div></div>
+<p data-i="s2_p2"></p>
+
+<h3 data-i="s2_h3"></h3>
+<div class="fig"><div class="board" id="st3"></div><div class="cap" data-i="s2_cap3"></div></div>
+<p data-i="s2_p3"></p>
+<blockquote data-i="s2_q3"></blockquote>
+<p data-i="s2_p3b"></p>
+
+<h3 data-i="s2_h4"></h3>
+<div class="fig"><div class="board" id="st4"></div><div class="cap" data-i="s2_cap4"></div></div>
+<p data-i="s2_p4"></p>
+
+<h3 data-i="s2_h5"></h3>
+<div class="shot"><img src="img/split_orig.png" alt="" data-alt="alt_orig"><p class="cap" data-i="shot_orig"></p></div>
+
+<h2 data-i="h3"></h2>
+<p data-i="s3_a"></p>
+<div class="fig"><div class="board" id="up1"></div><div class="cap" data-i="s3_cap"></div></div>
+<p data-i="s3_b"></p>
+
+<h2 data-i="h4"></h2>
+<p data-i="s4_a"></p>
+<p data-i="s4_b"></p>
+
+<h2 data-i="h5"></h2>
+<p data-i="s5_a"></p>
+<div class="row">
+  <div class="pane"><h4 data-i="s5_A_t"></h4><div class="board" id="fixA"></div><p class="cap good" data-i="s5_A_c"></p></div>
+  <div class="pane"><h4 data-i="s5_B_t"></h4><div class="board" id="fixB"></div><p class="cap good" data-i="s5_B_c"></p></div>
+</div>
+<p data-i="s5_b"></p>
+<div class="shot"><img src="img/split_fixed.png" alt="" data-alt="alt_fixed"><p class="cap" data-i="shot_fixed"></p></div>
+</main>
+
+<script>
+const T={
+ko:{
+title:'미스터 드릴러 G "붙은 블록이 갈라지는" 버그 이야기',
+intro1:'미스터 드릴러 G에서 같은 색 블록은 서로 <b>달라붙어 한 덩어리</b>로 움직입니다. 그런데 아주 가끔 이런 일이 생깁니다.',
+intro_list:'<li>한 덩어리였던 같은 색 블록이 <b>둘로 갈라져서</b>, 반은 그 자리에 서 있고 반은 떨어진다</li><li>받쳐 주는 것이 없어 보이는데 덩어리의 반쪽만 <b>공중에 남아 있다</b></li>',
+intro2:'이 문서는 이 일이 <b>왜</b> 생기는지, 그리고 <b>어떻게 고쳤는지</b>를 그림으로 설명합니다. 앞서 나온 <a href="../block-glitch-patch/index.html">"유령 블록" 버그 이야기</a>와 같은 순간, 같은 부분에서 생기는 <b>다른 실수</b>입니다. 유령 블록 패치를 한 롬에서도 이 현상은 그대로 남아 있었습니다.',
+h1:'1. 먼저, 블록 덩어리는 어떻게 움직일까?',
+s1_a:'게임 화면은 바둑판처럼 <b>칸</b>으로 나뉘어 있고, 게임은 칸마다 "무슨 색 블록인가"와 "지금 뭐 하는 중인가"를 메모해 둡니다. "뭐 하는 중"은 이런 것들입니다.',
+s1_list:'<li>가만히 서 있음 / 흔들리는 중 (곧 떨어지려고 부들부들)</li><li>떨어지는 중</li><li>반짝이며 사라지는 중</li><li>드릴에 파이는 중</li>',
+s1_b:'같은 색 블록이 맞닿아 있으면 한 덩어리입니다. 덩어리는 <b>다 같이 서 있거나, 다 같이 떨어져야</b> 합니다. 그래서 게임은 블록 하나를 "서 있음"으로 바꿀 때마다 맞닿은 같은 색 <b>친구</b>를 찾아가며 함께 바꿔 줍니다.',
+s1_c:'문제는 이 "친구 찾기"가 <b>친구를 빠뜨리는 경우</b>가 있다는 것입니다. 한쪽은 "서 있음", 다른 쪽은 "떨어지는 중"이 되면 덩어리가 갈라집니다.',
+h2:'2. 덩어리가 갈라지는 순간',
+s2_legend_intro:'아래 그림의 글자는 이렇게 읽어 주세요.',
+s2_legend:'<li><b>나</b> = 드릴러(플레이어)</li><li><b>D</b> = 드릴러 바로 옆의 초록 블록 (이제 팔 블록)</li><li><b>T, T2</b> = D 위에 얹힌 노랑 덩어리 (두 칸이 붙어 있음, T2는 드릴러 머리 위)</li><li><b>E, N</b> = 왼쪽의 파랑, 초록 블록</li><li>맨 아래 노란 줄 = 지금 반짝이며 사라지는 중</li>',
+s2_h1:'1단계 – 준비',
+s2_cap1:'<p>맨 아래 노란 줄이 반짝이며 사라지는 중.</p><p>노랑 덩어리 T-T2는 D 위에 얹혀 있다. T2 밑은 비어 있지만 T와 붙어 있어서 같이 버틴다.</p>',
+s2_h2:'2단계 – 딱 같은 순간 (1/60초)',
+s2_cap2:'<p>노란 줄이 사라지는 바로 그 순간 드릴러가 D를 판다.</p><p>게임: "받침이 없어진 블록은 전부 떨어지기 시작!" → E, N, T, T2 모두 "떨어지는 중".</p>',
+s2_p2:'노란 줄이 사라지는 <b>바로 그 순간</b> (화면 한 장 차이) 드릴러가 D를 팝니다. 게임은 먼저 받침이 없어진 블록을 <b>색에 상관없이 전부</b> "떨어지는 중"으로 바꿉니다. 노랑 덩어리 T와 T2도 둘 다 "떨어지는 중"이 됩니다. 여기까지는 문제없습니다.',
+s2_h3:'3단계 – 게임이 다시 확인한다',
+s2_cap3:'<p>게임: "T 밑에는 지금 파이고 있는 D가 있네? 그럼 T는 아직 받쳐져 있다. T를 다시 세우고, 붙어 있는 노랑 친구도 같이 세우자."</p><p>그런데 친구를 찾을 때 <b>"서 있는" 블록만</b> 친구로 인정한다. T2는 방금 "떨어지는 중"이 되었으니 <b>빠진다</b>.</p>',
+s2_p3:'같은 프레임 안에서 게임이 T를 다시 보니, T 바로 밑에는 <b>지금 파이고 있는 D</b>가 있습니다. 게임 규칙에서 "파이는 중"인 블록은 아직 받침입니다. 그래서 게임은 이렇게 생각합니다.',
+s2_q3:'"어? T는 아직 받쳐져 있네. T는 다시 세우고, T에 붙은 같은 색 친구들도 다시 세우자."',
+s2_p3b:'그런데 친구를 찾을 때 게임은 <b>"서 있음 / 흔들리는 중"인 블록만</b> 친구로 봅니다. 바로 직전에 T2를 "떨어지는 중"으로 바꾼 것은 게임 자신인데, 그 사실을 고려하지 않은 것입니다. 그래서 T2는 친구 목록에서 빠집니다.',
+s2_h4:'4단계 – 덩어리가 갈라진다',
+s2_cap4:'<p>T는 "서 있음", T2는 "떨어지는 중".</p><p>한 덩어리였던 노랑이 둘로 갈라져서 T2만 먼저 떨어지고, T는 혼자 남는다.</p>',
+s2_p4:'결과적으로 T는 "서 있음", T2는 "떨어지는 중"이 됩니다. 원래는 함께 움직여야 할 노랑 덩어리가 <b>둘로 갈라져</b>, T2만 떨어지고 T는 받침(D)이 파여 없어진 자리 위에 한동안 혼자 남습니다.',
+s2_h5:'실제 게임 화면 (원래 게임)',
+alt_orig:'원래 게임에서 노랑 덩어리가 갈라지는 3장면',
+shot_orig:'왼쪽부터: ① 아래 노란 줄이 사라지는 순간 드릴러가 초록 블록을 팜 ② 바로 뒤 ③ 노랑 덩어리의 왼쪽 반(T, 숫자 765 아래)은 공중에 남고, 오른쪽 반(T2)은 혼자 떨어져 드릴러 위로 내려옴. (GroovyMAME에서 블록 배치를 만들어 재현한 화면)',
+h3:'3. 실수가 하나 더: 위로 올라갈 때 색을 잘못 전달',
+s3_a:'게임은 T를 다시 세운 뒤, T 위에 얹힌 블록도 한 칸씩 올라가며 다시 세웁니다. 이때 위 블록 U의 친구를 찾으면서 <b>U의 색이 아니라 T의 색(노랑)</b>을 기준으로 찾습니다.',
+s3_cap:'<p>T(노랑)를 다시 세우고 위로 올라가 파랑 U도 세운다.</p><p>그런데 U의 친구를 "노랑"으로 찾으니, U에 붙어 있는 <b>파랑 U2는 못 찾는다</b> → U는 서고 U2는 떨어진다.</p>',
+s3_b:'그래서 위쪽에 다른 색 덩어리가 얹혀 있으면 <b>그 덩어리도 갈라질 수 있습니다.</b> (위로 올라갈 때 빈칸까지 세워 버리던 것이 "유령 블록" 버그였고, 그 부분은 유령 블록 패치로 이미 고쳐져 있었습니다. 이번 것은 같은 곳의 또 다른 실수입니다.)',
+h4:'4. 얼마나 자주 생길까?',
+s4_a:'드뭅니다. 유령 블록과 마찬가지로 아래 줄이 <b>사라지는 바로 그 1/60초</b>에 그 위 블록을 파야 하고, 판 블록 위에 같은 색 덩어리가 걸쳐 있어야 합니다. 일부러 노리기는 어렵고, 오래 하다 보면 우연히 한 번씩 걸리는 정도입니다.',
+s4_b:'다만 그 순간이 만들어지기만 하면 꽤 잘 일어납니다. 그 순간에 맞춰 주변 블록을 무작위로 200가지 배치해 보았더니 원래 게임에서 <b>44번</b>, 유령 블록 패치 롬에서 <b>31번</b> 덩어리가 갈라졌습니다.',
+h5:'5. 어떻게 고쳤나?',
+s5_a:'"다시 세우기" 부분을 두 군데 고쳤습니다.',
+s5_A_t:'고침 1 – 방금 떨어지기 시작한 친구도 찾는다',s5_A_c:'"이번 순간에 서 있다가 막 떨어지기 시작한 블록"도 친구로 인정한다 → T2도 함께 다시 선다.',
+s5_B_t:'고침 2 – 위 블록은 자기 색으로 친구를 찾는다',s5_B_c:'위로 올라가면 그 블록 자신의 색(파랑)으로 친구를 찾는다 → U2도 함께 선다.',
+s5_b:'이제 덩어리는 갈라지지 않습니다. T-T2는 D가 파이는 동안 함께 서 있다가, D가 다 파여 없어지면 <b>함께</b> 떨어집니다. 유령 블록 수정("위로 올라갈 때 정말 블록이 있는지 확인")도 그대로 들어 있습니다. 에어 캡슐처럼 덩어리를 만들지 않는 블록 위로 올라갈 때는 원래 게임과 똑같이 동작하게 했습니다.',
+alt_fixed:'고친 게임에서 노랑 덩어리가 함께 떨어지는 4장면',
+shot_fixed:'고친 게임, 같은 배치와 같은 입력: ① 같은 순간에 팜 ②③ 노랑 덩어리(T-T2)가 붙은 채로 서 있음 ④ D가 다 파인 뒤 둘이 <b>함께</b> 내려옴.',
+me:'나',
+tFlash:'반짝',tFall:'떨어질래',tDig:'파는 중',tStand:'다시 섬',tMiss:'못 찾음',tAlone:'혼자 남음',tAloneFall:'혼자 떨어짐',tFound:'같이 섬'
+},
+en:{
+title:'The Mr. Driller G "Split Block" Bug',
+intro1:'In Mr. Driller G, blocks of the same color <b>stick together and move as one lump</b>. But once in a great while this happens:',
+intro_list:'<li>A lump of same-colored blocks <b>splits in two</b>: half stays where it is, half falls</li><li>Half of a lump <b>stays up in the air</b> with nothing visibly holding it</li>',
+intro2:'This page explains <b>why</b> it happens and <b>how it was fixed</b>, with pictures. It happens at the same moment and in the same part of the program as the <a href="../block-glitch-patch/index.html">"ghost block" bug</a>, but it is a <b>different mistake</b>. It was still there on ROMs with the ghost block patch.',
+h1:'1. First, how does a lump of blocks move?',
+s1_a:'The game screen is divided into <b>cells</b>, like a checkerboard. For every cell the game notes "what color of block is this" and "what is it doing right now". "What it is doing" is one of:',
+s1_list:'<li>Standing still / wobbling (about to fall)</li><li>Falling</li><li>Blinking away</li><li>Being drilled</li>',
+s1_b:'Same-colored blocks that touch form one lump. A lump must <b>stand together or fall together</b>. So whenever the game sets a block to "standing", it walks to the touching same-colored <b>friends</b> and sets them too.',
+s1_c:'The problem is that this "friend search" sometimes <b>misses a friend</b>. When one half says "standing" and the other half says "falling", the lump splits.',
+h2:'2. The moment the lump splits',
+s2_legend_intro:'Read the letters in the diagrams below as follows.',
+s2_legend:'<li><b>Me</b> = the Driller (player)</li><li><b>D</b> = the green block right next to the Driller (about to be dug)</li><li><b>T, T2</b> = the yellow lump on top of D (two cells stuck together; T2 is above the Driller’s head)</li><li><b>E, N</b> = the blue and green blocks on the left</li><li>The yellow row at the bottom = currently blinking away</li>',
+s2_h1:'Step 1 – Setup',
+s2_cap1:'<p>The yellow row at the bottom is blinking away.</p><p>The yellow lump T-T2 rests on D. Under T2 there is nothing, but it is stuck to T so it holds on.</p>',
+s2_h2:'Step 2 – The very same moment (1/60 s)',
+s2_cap2:'<p>At the very moment the yellow row vanishes, the Driller digs D.</p><p>Game: "Every block that lost its support starts falling!" → E, N, T and T2 all become "falling".</p>',
+s2_p2:'At <b>exactly the moment</b> the yellow row vanishes (a single video frame), the Driller digs D. First, the game sets every block that lost its support to "falling", <b>regardless of color</b>. Both T and T2 of the yellow lump become "falling". So far, no problem.',
+s2_h3:'Step 3 – The game checks again',
+s2_cap3:'<p>Game: "Under T there is D, which is being dug? Then T is still supported. Stand T back up, and its yellow friends with it."</p><p>But while searching for friends it only accepts <b>"standing" blocks</b>. T2 has just become "falling", so it is <b>left out</b>.</p>',
+s2_p3:'In the same frame the game looks at T again and sees, right below T, <b>D, which is being dug</b>. By the game’s rules a block being dug still counts as support. So the game thinks:',
+s2_q3:'"Oh, T is still supported. Stand T back up, and stand up its same-colored friends too."',
+s2_p3b:'But when searching for friends, the game only counts blocks that are <b>"standing / wobbling"</b>. It was the game itself that set T2 to "falling" a moment ago, and it forgets about that. So T2 is left out of the friend list.',
+s2_h4:'Step 4 – The lump splits',
+s2_cap4:'<p>T is "standing", T2 is "falling".</p><p>The yellow lump splits in two: T2 falls first and T is left alone.</p>',
+s2_p4:'As a result T is "standing" and T2 is "falling". The yellow lump that should move as one <b>splits in two</b>: only T2 falls, and T stays alone for a while above the spot where its support (D) was dug away.',
+s2_h5:'The actual game screen (original game)',
+alt_orig:'Three frames of the original game where the yellow lump splits',
+shot_orig:'From the left: ① the moment the yellow row below vanishes, the Driller digs the green block ② just after ③ the left half of the yellow lump (T, under the number 765) stays in the air while the right half (T2) falls alone onto the Driller. (Reproduced in GroovyMAME with a prepared block layout.)',
+h3:'3. One more mistake: the wrong color is passed upward',
+s3_a:'After standing T back up, the game climbs up one cell at a time and stands up the blocks sitting on T as well. While searching for the friends of the upper block U, it uses <b>T’s color (yellow) instead of U’s own color</b>.',
+s3_cap:'<p>T (yellow) is stood up, then the game climbs and stands up blue U as well.</p><p>But it searches U’s friends as "yellow", so <b>blue U2, stuck to U, is not found</b> → U stands and U2 falls.</p>',
+s3_b:'So if a lump of another color sits on top, <b>that lump can split as well.</b> (Standing up even empty cells while climbing was the "ghost block" bug, and that part was already fixed by the ghost block patch. This is another mistake in the same place.)',
+h4:'4. How often does it happen?',
+s4_a:'Rarely. As with the ghost block, you have to dig the block above at <b>the exact 1/60 s in which the row below vanishes</b>, and a same-colored lump has to be resting on the block you dig. It is hard to do on purpose; during long play sessions it catches you by chance now and then.',
+s4_b:'However, once that moment happens, the split is quite likely. With 200 random layouts of the surrounding blocks at exactly that moment, the lump split <b>44 times</b> in the original game and <b>31 times</b> on the ghost-block-patched ROM.',
+h5:'5. How was it fixed?',
+s5_a:'Two places in the "stand back up" routine were fixed.',
+s5_A_t:'Fix 1 – also find friends that just started falling',s5_A_c:'A block that "was standing and just started falling in this same moment" also counts as a friend → T2 stands back up too.',
+s5_B_t:'Fix 2 – an upper block searches with its own color',s5_B_c:'When climbing, the upper block searches for friends with its own color (blue) → U2 stands too.',
+s5_b:'Now the lump no longer splits. T-T2 stands together while D is being dug, and once D is dug away they fall <b>together</b>. The ghost block fix ("check that a block really exists before climbing") is still included. When climbing onto blocks that never form lumps, such as air capsules, the game behaves exactly as the original.',
+alt_fixed:'Four frames of the fixed game where the yellow lump falls together',
+shot_fixed:'Fixed game, same layout and same input: ① dug at the same moment ②③ the yellow lump (T-T2) stays standing, still joined ④ after D is dug away both come down <b>together</b>.',
+me:'Me',
+tFlash:'Flash',tFall:'Fall!',tDig:'Digging',tStand:'Re-stand',tMiss:'Missed',tAlone:'Left alone',tAloneFall:'Falls alone',tFound:'Stands too'
+},
+ja:{
+title:'ミスタードリラーG「くっついたブロックが分かれる」バグの話',
+intro1:'ミスタードリラーGでは、同じ色のブロックは<b>くっついて1つのかたまり</b>として動きます。ところが、ごくまれにこんなことが起こります。',
+intro_list:'<li>1つのかたまりだった同じ色のブロックが<b>2つに分かれ</b>、半分はその場に残り、半分は落ちる</li><li>支えが見当たらないのに、かたまりの半分だけが<b>空中に残っている</b></li>',
+intro2:'このドキュメントでは、これが<b>なぜ</b>起こるのか、そして<b>どう直したのか</b>を図で説明します。以前の<a href="../block-glitch-patch/index.html">「ゴーストブロック」バグの話</a>と同じ瞬間、同じ部分で起こる<b>別のミス</b>です。ゴーストブロックのパッチを当てたROMでも、この現象はそのまま残っていました。',
+h1:'1. まず、ブロックのかたまりはどう動く？',
+s1_a:'ゲーム画面は碁盤の目のように<b>マス</b>に分かれていて、ゲームはマスごとに「何色のブロックか」と「今なにをしているか」をメモしています。「今なにをしているか」は次のようなものです。',
+s1_list:'<li>じっと立っている / ぐらぐら揺れている（もうすぐ落ちる）</li><li>落下中</li><li>点滅して消えている最中</li><li>ドリルで掘られている最中</li>',
+s1_b:'同じ色のブロックが接していれば1つのかたまりです。かたまりは<b>全部一緒に立っているか、全部一緒に落ちる</b>必要があります。そのためゲームは、ブロックを「立っている」に変えるたびに、接している同じ色の<b>仲間</b>をたどって一緒に変えていきます。',
+s1_c:'問題は、この「仲間さがし」が<b>仲間を見落とす</b>ことがある点です。片方が「立っている」、もう片方が「落下中」になると、かたまりが分かれてしまいます。',
+h2:'2. かたまりが分かれる瞬間',
+s2_legend_intro:'下の図の文字は次のように読んでください。',
+s2_legend:'<li><b>私</b> = ドリラー（プレイヤー）</li><li><b>D</b> = ドリラーのすぐ隣の緑ブロック（これから掘るブロック）</li><li><b>T, T2</b> = Dの上に乗っている黄色のかたまり（2マスがくっついている、T2はドリラーの頭の上）</li><li><b>E, N</b> = 左側の青と緑のブロック</li><li>いちばん下の黄色い列 = いま点滅して消えている最中</li>',
+s2_h1:'ステップ1 – 準備',
+s2_cap1:'<p>いちばん下の黄色い列が点滅して消えている最中。</p><p>黄色のかたまりT-T2はDの上に乗っている。T2の下は空いているが、Tとくっついているので一緒に踏みとどまっている。</p>',
+s2_h2:'ステップ2 – ちょうど同じ瞬間（1/60秒）',
+s2_cap2:'<p>黄色い列が消えたまさにその瞬間、ドリラーがDを掘る。</p><p>ゲーム:「支えがなくなったブロックは全部落ち始めろ！」→ E、N、T、T2がすべて「落下中」。</p>',
+s2_p2:'黄色い列が消える<b>まさにその瞬間</b>（画面1枚ぶんの差）に、ドリラーがDを掘ります。ゲームはまず、支えがなくなったブロックを<b>色に関係なく全部</b>「落下中」に変えます。黄色のかたまりのTとT2も、どちらも「落下中」になります。ここまでは問題ありません。',
+s2_h3:'ステップ3 – ゲームがもう一度確認する',
+s2_cap3:'<p>ゲーム:「Tの下には今掘られているDがあるな？ ならTはまだ支えられている。Tを立て直して、くっついている黄色の仲間も一緒に立て直そう。」</p><p>ところが仲間をさがすとき、<b>「立っている」ブロックだけ</b>を仲間と認める。T2はたった今「落下中」になったので<b>外れてしまう</b>。</p>',
+s2_p3:'同じフレームの中でゲームがTをもう一度見ると、Tのすぐ下には<b>いま掘られているD</b>があります。ゲームのルールでは「掘られている最中」のブロックはまだ支えです。そこでゲームはこう考えます。',
+s2_q3:'「おや、Tはまだ支えられているぞ。Tを立て直して、Tにくっついている同じ色の仲間も立て直そう。」',
+s2_p3b:'ところが仲間をさがすとき、ゲームは<b>「立っている / 揺れている」ブロックだけ</b>を仲間として扱います。直前にT2を「落下中」に変えたのはゲーム自身なのに、そのことを考えていないのです。そのためT2は仲間のリストから外れます。',
+s2_h4:'ステップ4 – かたまりが分かれる',
+s2_cap4:'<p>Tは「立っている」、T2は「落下中」。</p><p>1つだった黄色のかたまりが2つに分かれ、T2だけが先に落ち、Tはひとり残る。</p>',
+s2_p4:'その結果、Tは「立っている」、T2は「落下中」になります。本来一緒に動くはずの黄色のかたまりが<b>2つに分かれ</b>、T2だけが落ち、Tは支え（D）が掘られてなくなった場所の上にしばらくひとりで残ります。',
+s2_h5:'実際のゲーム画面（元のゲーム）',
+alt_orig:'元のゲームで黄色のかたまりが分かれる3場面',
+shot_orig:'左から: ① 下の黄色い列が消える瞬間にドリラーが緑ブロックを掘る ② その直後 ③ 黄色のかたまりの左半分（T、数字765の下）は空中に残り、右半分（T2）だけが落ちてドリラーの上に降りてくる。（GroovyMAMEでブロック配置を作って再現した画面）',
+h3:'3. ミスがもう1つ: 上へ上がるとき色を間違えて渡す',
+s3_a:'ゲームはTを立て直したあと、Tの上に乗っているブロックも1マスずつ上がりながら立て直します。このとき上のブロックUの仲間をさがす基準が、<b>U自身の色ではなくTの色（黄色）</b>になっています。',
+s3_cap:'<p>T（黄色）を立て直し、上へ上がって青のUも立て直す。</p><p>ところがUの仲間を「黄色」でさがすので、Uにくっついている<b>青のU2が見つからない</b> → Uは立ち、U2は落ちる。</p>',
+s3_b:'そのため上に別の色のかたまりが乗っていると、<b>そのかたまりも分かれることがあります。</b>（上へ上がるとき空マスまで立ててしまうのが「ゴーストブロック」バグで、その部分はゴーストブロックのパッチですでに直っていました。今回のものは同じ場所にあるもう1つのミスです。）',
+h4:'4. どのくらいの頻度で起こる？',
+s4_a:'まれです。ゴーストブロックと同じく、下の列が<b>消えるまさにその1/60秒</b>にその上のブロックを掘る必要があり、しかも掘るブロックの上に同じ色のかたまりが乗っていなければなりません。狙って起こすのは難しく、長く遊んでいるとたまたま1回ひっかかる程度です。',
+s4_b:'ただし、その瞬間さえできてしまえばかなりの確率で起こります。その瞬間に合わせて周りのブロックをランダムに200通り配置して試したところ、元のゲームで<b>44回</b>、ゴーストブロックのパッチを当てたROMで<b>31回</b>かたまりが分かれました。',
+h5:'5. どう直した？',
+s5_a:'「立て直し」の部分を2か所直しました。',
+s5_A_t:'修正1 – たった今落ち始めた仲間もさがす',s5_A_c:'「この瞬間まで立っていて、たった今落ち始めたブロック」も仲間と認める → T2も一緒に立ち直る。',
+s5_B_t:'修正2 – 上のブロックは自分の色で仲間をさがす',s5_B_c:'上へ上がったら、そのブロック自身の色（青）で仲間をさがす → U2も一緒に立つ。',
+s5_b:'これでかたまりは分かれなくなりました。T-T2はDが掘られている間は一緒に立っていて、Dが掘られてなくなると<b>一緒に</b>落ちます。ゴーストブロックの修正（「上へ上がるとき本当にブロックがあるか確認する」）もそのまま入っています。エアカプセルのようにかたまりを作らないブロックの上へ上がるときは、元のゲームとまったく同じ動きにしてあります。',
+alt_fixed:'修正後のゲームで黄色のかたまりが一緒に落ちる4場面',
+shot_fixed:'修正後のゲーム、同じ配置・同じ入力: ① 同じ瞬間に掘る ②③ 黄色のかたまり（T-T2）はくっついたまま立っている ④ Dが掘られてなくなったあと、2つが<b>一緒に</b>降りてくる。',
+me:'私',
+tFlash:'点滅',tFall:'落ちる',tDig:'掘り中',tStand:'再び立つ',tMiss:'見落とし',tAlone:'ひとり残る',tAloneFall:'ひとりで落下',tFound:'一緒に立つ'
+}};
+</script>
+<script>
+/* ---------- board builder ----------
+   rows: strings, B/G/Y = block, S = blinking row, P = player, . = empty
+   glue: list of [c,r,c2,r2] pairs drawn as one lump (horizontal only)
+   labels / tags / dash keyed by "c,r"; arrows: [{d,color,x:[cx,cy]}] in cell units */
+function board(el,o){
+  const rows=o.rows, R=rows.length, C=rows[0].length;
+  el.style.setProperty('--cols',C);
+  el.innerHTML='';
+  const glueL={},glueR={};
+  (o.glue||[]).forEach(g=>{glueR[g[0]+','+g[1]]=1;glueL[g[2]+','+g[3]]=1;});
+  for(let r=0;r<R;r++)for(let c=0;c<C;c++){
+    const ch=rows[r][c], k=c+','+r, d=document.createElement('div'); d.className='cell';
+    if('BGY'.includes(ch)){
+      d.classList.add('k-'+ch);
+      const b=document.createElement('div'); b.className='b';
+      if(glueR[k]){b.classList.add('glue-r');b.style.borderTopRightRadius=b.style.borderBottomRightRadius='0';}
+      if(glueL[k]){b.classList.add('glue-l');b.style.borderTopLeftRadius=b.style.borderBottomLeftRadius='0';}
+      const lab=o.labels&&o.labels[k]; if(lab)b.textContent=lab;
+      d.appendChild(b);
+    }
+    if(ch==='S'){const s=document.createElement('div');s.className='sp';d.appendChild(s);}
+    if(ch==='P'){const m=document.createElement('div');m.className='me';m.textContent=o.me||'';d.appendChild(m);}
+    if(o.dash&&o.dash[k]){const x=document.createElement('div');x.className='dash';d.appendChild(x);}
+    const tg=o.tags&&o.tags[k];
+    if(tg){const t=document.createElement('div');t.className='tag'+(tg[1]?' g':'');t.textContent=tg[0];d.appendChild(t);}
+    el.appendChild(d);
+  }
+  if(o.arrows){
+    const ns='http://www.w3.org/2000/svg',s=document.createElementNS(ns,'svg');
+    s.setAttribute('viewBox','0 0 '+C+' '+R);s.setAttribute('preserveAspectRatio','none');
+    let h='<defs>';
+    o.arrows.forEach((a,i)=>{h+='<marker id="mk'+el.id+i+'" markerWidth="4" markerHeight="4" refX="2" refY="2" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L4,2 L0,4 z" fill="'+a.color+'"/></marker>';});
+    h+='</defs>';
+    o.arrows.forEach((a,i)=>{
+      h+='<path d="'+a.d+'" fill="none" stroke="'+a.color+'" stroke-width=".07" marker-end="url(#mk'+el.id+i+')"/>';
+      if(a.x){const [x,y]=a.x,q=.13;h+='<path d="M'+(x-q)+','+(y-q)+' L'+(x+q)+','+(y+q)+' M'+(x+q)+','+(y-q)+' L'+(x-q)+','+(y+q)+'" stroke="#e63946" stroke-width=".1" stroke-linecap="round"/>';}
+    });
+    s.innerHTML=h;el.appendChild(s);
+  }
+}
+const P=(c,r)=>c+','+r;
+const RED='#e63946',GRN='#2e9d4a',WHT='#ffffff';
+function render(L){
+  const t=T[L];
+  document.documentElement.lang=L;
+  document.title={ko:'미스터 드릴러 G 블록 분리',en:'Mr. Driller G Split Block',ja:'ミスタードリラーG ブロック分離'}[L];
+  document.querySelectorAll('[data-i]').forEach(e=>{e.innerHTML=t[e.dataset.i]||''});
+  document.querySelectorAll('[data-alt]').forEach(e=>{e.alt=t[e.dataset.alt]||''});
+  document.querySelectorAll('#langbar button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.lang===L));
+  const lab={'0,1':'N','1,1':'T','2,1':'T2','0,2':'E','1,2':'D'};
+  const base={me:t.me,labels:lab,glue:[[1,1,2,1]]};
+  const rowsA=['...','GYY','BGP','SS.'];
+  const fallAll={[P(0,1)]:[t.tFall],[P(1,1)]:[t.tFall],[P(2,1)]:[t.tFall],[P(0,2)]:[t.tFall],[P(1,2)]:[t.tDig]};
+  // section 2
+  board(document.getElementById('st1'),{...base,rows:['...','GYY','BGP','YY.'],glue:[[1,1,2,1],[0,3,1,3]],
+    tags:{[P(0,3)]:[t.tFlash],[P(1,3)]:[t.tFlash]}});
+  board(document.getElementById('st2'),{...base,rows:rowsA,tags:fallAll});
+  board(document.getElementById('st3'),{...base,rows:rowsA,
+    tags:{...fallAll,[P(1,1)]:[t.tStand,1],[P(2,1)]:[t.tMiss]},
+    arrows:[{color:RED,d:'M1.55,1.56 H2.35',x:[1.95,1.56]}]});
+  board(document.getElementById('st4'),{me:t.me,labels:{'1,1':'T','2,2':'T2','1,2':'D'},rows:['...','.Y.','.GY','SS.'],
+    dash:{[P(2,1)]:1},tags:{[P(1,1)]:[t.tAlone],[P(2,2)]:[t.tAloneFall],[P(1,2)]:[t.tDig]},
+    arrows:[{color:WHT,d:'M2.5,1.2 V1.85'}]});
+  // section 3: upward step passes T's colour
+  const labU={'0,0':'U2','1,0':'U','0,1':'N','1,1':'T','0,2':'E','1,2':'D'};
+  const rowsU=['BB.','GY.','BGP','SS.'];
+  board(document.getElementById('up1'),{me:t.me,labels:labU,glue:[[0,0,1,0]],rows:rowsU,
+    tags:{[P(1,1)]:[t.tStand,1],[P(1,0)]:[t.tStand,1],[P(0,0)]:[t.tMiss],[P(1,2)]:[t.tDig]},
+    arrows:[{color:GRN,d:'M1.84,1.3 V0.62'},{color:RED,d:'M1.45,0.56 H0.65',x:[1.05,0.56]}]});
+  // section 5: fixes
+  board(document.getElementById('fixA'),{...base,rows:rowsA,
+    tags:{...fallAll,[P(1,1)]:[t.tStand,1],[P(2,1)]:[t.tFound,1]},
+    arrows:[{color:GRN,d:'M1.55,1.56 H2.35'}]});
+  board(document.getElementById('fixB'),{me:t.me,labels:labU,glue:[[0,0,1,0]],rows:rowsU,
+    tags:{[P(1,1)]:[t.tStand,1],[P(1,0)]:[t.tStand,1],[P(0,0)]:[t.tFound,1],[P(1,2)]:[t.tDig]},
+    arrows:[{color:GRN,d:'M1.84,1.3 V0.62'},{color:GRN,d:'M1.45,0.56 H0.65'}]});
+}
+let saved=null;try{saved=localStorage.getItem('lang')}catch(e){}
+const q=new URLSearchParams(location.search).get('lang');
+let lang=[q,saved,(navigator.language||'en').slice(0,2)].find(x=>x&&T[x])||'en';
+document.querySelectorAll('#langbar button').forEach(b=>b.onclick=()=>{lang=b.dataset.lang;try{localStorage.setItem('lang',lang)}catch(e){};render(lang)});
+render(lang);
+</script>
+</body>
+</html>

@@ -1,5 +1,7 @@
 # Handoff (2026-10-19)
 
+> Mr. Driller G AI (Driller AI, MiSTer OSD "AI Driller" / GroovyMAME): see `docs/continue/handoff.md` (2026-11-02).
+
 ## Status
 - **No play-affecting graphics or sound problem known in the ported sets** (user play tests up to 2026-10-19): Mr. Driller G, Mr. Driller 2 (mrdrilr2j), Gamshara, Star Trigon. The earlier "blue lines / frozen graphics after a MiSTer soft reboot" did not come back with the faster GPU (eda46d1) over several soft resets and core switches - most likely a side effect of the GPU overrun. Watch for it in further play.
   - Mr. Driller G: user (played the real NS10) rates it "almost identical to the real board".
