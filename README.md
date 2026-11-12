@@ -1,5 +1,8 @@
 # Namco System 10 for MiSTer FPGA (beta core)
 
+> **Notice:** General development of this core has largely stopped. It is now being developed only as a core specialized for the Mr. Driller games.
+> For a general-purpose Namco System 10 core, please use [kyledlester/Namco_System_10_MiSTer](https://github.com/kyledlester/Namco_System_10_MiSTer).
+
 Namco System 10 arcade core (core name `SYSTEM10`) for MiSTer, built on the PSX core.
 
 ## For users
