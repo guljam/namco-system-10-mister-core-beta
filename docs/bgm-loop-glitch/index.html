@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mr. Driller BGM Blue Screen</title>
+<style>
+:root{
+  --bg:#f6f7f9;--fg:#1f2430;--muted:#5b6475;--card:#fff;--line:#d9dde5;--accent:#2a62d9;
+  --ok:#2e9d4a;--bad:#d33;--note:#e08a00;--check:#2a62d9;--change:#8a4fd1;
+  --cup:#cfe3ff;--water:#5b9cf0;--memo:#fff3c4;--memoline:#c9a227;
+}
+@media (prefers-color-scheme:dark){
+  :root{--bg:#171a21;--fg:#e6e9f0;--muted:#9aa3b5;--card:#20242e;--line:#343a48;--accent:#7aa2ff;
+    --check:#7aa2ff;--cup:#2b3a55;--memo:#4a4224;--memoline:#c9a227;}
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.75 "Segoe UI","Malgun Gothic","Yu Gothic UI","Meiryo",system-ui,sans-serif}
+header{position:sticky;top:0;z-index:5;background:var(--card);border-bottom:1px solid var(--line)}
+header .in{max-width:900px;margin:0 auto;padding:8px 16px;display:flex;justify-content:flex-end;gap:6px}
+header button{border:1px solid var(--line);background:transparent;color:var(--fg);padding:6px 14px;border-radius:8px;font:inherit;font-size:14px;cursor:pointer}
+header button[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:#fff}
+main{max-width:900px;margin:0 auto;padding:8px 16px 64px}
+h1{font-size:1.8rem;line-height:1.3;margin:28px 0 12px}
+h2{font-size:1.35rem;margin:40px 0 8px;padding-top:16px;border-top:1px solid var(--line)}
+h3{font-size:1.1rem;margin:28px 0 6px}
+li{margin:2px 0}
+blockquote{margin:12px 0;padding:6px 16px;border-left:4px solid var(--accent);background:rgba(127,127,127,.1);border-radius:0 8px 8px 0}
+.bad{color:var(--bad)}.good{color:var(--ok)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin:14px 0}
+.cap{font-size:.92rem;line-height:1.55;color:var(--muted);margin:10px 0 0}
+/* pipeline */
+.pipe{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center}
+.box{border:2px solid var(--line);border-radius:10px;padding:8px 12px;text-align:center;background:var(--bg);font-size:.95rem;line-height:1.4}
+.rom{min-width:150px}
+.rom .bar{height:14px;border-radius:4px;margin:6px 0 2px;background:repeating-linear-gradient(90deg,var(--water) 0 10px,transparent 10px 12px)}
+.cups{display:flex;gap:8px;justify-content:center;margin-top:4px}
+.cup{width:46px;height:54px;border:3px solid var(--fg);border-top:none;border-radius:0 0 12px 12px;position:relative;overflow:hidden;background:var(--cup)}
+.cup i{position:absolute;left:0;right:0;bottom:0;background:var(--water)}
+.arrow{font-size:1.6rem;color:var(--muted);line-height:1}
+.notes{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:14px}
+.note{background:var(--memo);border:1px solid var(--memoline);border-radius:4px;padding:6px 10px;font-size:.9rem;line-height:1.45;max-width:260px;box-shadow:2px 2px 0 rgba(0,0,0,.12)}
+.note b{display:block}
+/* timeline */
+.tl-wrap{margin:8px 0 4px}
+.tl-title{font-weight:700;margin:0 0 4px}
+.tl{position:relative;height:66px;margin:0 0 4px}
+.fr{position:absolute;top:14px;height:14px;border:1px solid var(--line);background:var(--bg);border-radius:4px}
+.fr span{position:absolute;top:18px;left:2px;white-space:nowrap;font-size:.75rem;color:var(--muted);line-height:16px}
+.fr.a{left:0;width:calc(50% - 2px)}.fr.b{left:calc(50% + 2px);width:calc(50% - 2px)}
+.mk{position:absolute;top:8px;width:26px;height:26px;margin-left:-13px;border-radius:50%;color:#fff;font-weight:700;font-size:.85rem;
+  display:flex;align-items:center;justify-content:center;border:2px solid var(--card);z-index:2}
+.mk.note{background:var(--note);padding:0;max-width:none;box-shadow:none}
+.mk.check{background:var(--check)}.mk.change{background:var(--change)}.mk.boom{background:var(--bad)}.mk.okk{background:var(--ok)}
+.legend{list-style:none;padding:0;margin:4px 0 0;font-size:.92rem;line-height:1.55}
+.legend li{display:flex;gap:8px;align-items:flex-start;margin:4px 0}
+.legend .mk{position:static;flex:0 0 22px;width:22px;height:22px;margin:1px 0 0;font-size:.75rem}
+/* calc table */
+table{border-collapse:collapse;width:100%;font-size:.95rem;margin:10px 0}
+th,td{border:1px solid var(--line);padding:6px 10px;text-align:left;vertical-align:top}
+th{background:rgba(127,127,127,.1)}
+/* overflow svg */
+.svgfig svg{display:block;width:100%;max-width:560px;height:auto;margin:0 auto}
+/* fix flow */
+.flow{display:flex;flex-direction:column;align-items:center;gap:6px}
+.flow .q{border:2px solid var(--accent);border-radius:10px;padding:8px 14px;background:var(--bg);text-align:center;font-weight:600}
+.flow .br{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;width:100%}
+.flow .br .box{flex:1 1 220px;max-width:340px}
+.flow .yes{border-color:var(--ok)}.flow .no{border-color:var(--bad)}
+/* gifs */
+.gifs{display:flex;gap:16px;flex-wrap:wrap;margin:14px 0}
+.gifs figure{flex:1 1 300px;margin:0;min-width:0}
+.gifs img{display:block;width:100%;height:auto;border-radius:8px;border:1px solid var(--line);image-rendering:auto}
+.gifs figcaption{margin:6px 0 0;font-size:.92rem;line-height:1.55;color:var(--muted)}
+.gifs h4{margin:0 0 6px;font-size:1.02rem}
+</style>
+</head>
+<body>
+<header><div class="in" id="langbar">
+  <button data-lang="ko">한국어</button><button data-lang="en">English</button><button data-lang="ja">日本語</button>
+</div></header>
+<main>
+<h1 data-i="title"></h1>
+<p data-i="intro1"></p>
+<ul data-i="intro_list"></ul>
+<p data-i="intro2"></p>
+
+<h2 data-i="h1"></h2>
+<p data-i="s1_a"></p>
+<div class="card">
+  <div class="pipe">
+    <div class="box rom"><span data-i="romBox"></span><div class="bar"></div><small data-i="romSub"></small></div>
+    <div class="arrow">&rarr;</div>
+    <div class="box"><span data-i="cupBox"></span>
+      <div class="cups"><div class="cup"><i style="height:70%"></i></div><div class="cup"><i style="height:25%"></i></div></div>
+      <small>1KB + 1KB</small></div>
+    <div class="arrow">&rarr;</div>
+    <div class="box"><span data-i="spuBox"></span><div style="font-size:1.8rem;line-height:1.2">&#128264;</div></div>
+  </div>
+  <div class="notes">
+    <div class="note" data-i="note2"></div>
+    <div class="note" data-i="note3"></div>
+  </div>
+  <p class="cap" data-i="s1_cap"></p>
+</div>
+<p data-i="s1_b"></p>
+
+<h2 data-i="h2"></h2>
+<p data-i="s2_a"></p>
+<div class="card">
+  <div class="tl-wrap">
+    <p class="tl-title good" data-i="tlOkTitle"></p>
+    <div class="tl">
+      <div class="fr a"><span data-i="frame1"></span></div><div class="fr b"><span data-i="frame2"></span></div>
+      <div class="mk note" style="left:11%">1</div>
+      <div class="mk okk" style="left:21%">2</div>
+      <div class="mk change" style="left:51.2%">3</div>
+    </div>
+    <ul class="legend">
+      <li><span class="mk note">1</span><span data-i="ok1"></span></li>
+      <li><span class="mk okk">2</span><span data-i="ok2"></span></li>
+      <li><span class="mk change">3</span><span data-i="ok3"></span></li>
+    </ul>
+  </div>
+  <div class="tl-wrap" style="margin-top:20px">
+    <p class="tl-title bad" data-i="tlBadTitle"></p>
+    <div class="tl">
+      <div class="fr a"><span data-i="frame1"></span></div><div class="fr b"><span data-i="frame2"></span></div>
+      <div class="mk check" style="left:17%">1</div>
+      <div class="mk note" style="left:29%">2</div>
+      <div class="mk change" style="left:51.2%">3</div>
+      <div class="mk boom" style="left:68%">4</div>
+    </div>
+    <ul class="legend">
+      <li><span class="mk check">1</span><span data-i="bad1"></span></li>
+      <li><span class="mk note">2</span><span data-i="bad2"></span></li>
+      <li><span class="mk change">3</span><span data-i="bad3"></span></li>
+      <li><span class="mk boom">4</span><span data-i="bad4"></span></li>
+    </ul>
+  </div>
+  <p class="cap" data-i="tlCap"></p>
+</div>
+
+<h3 data-i="s2_h_calc"></h3>
+<p data-i="s2_calc"></p>
+<table>
+  <thead><tr><th></th><th data-i="thLen"></th><th data-i="thPos"></th><th data-i="thLeft"></th></tr></thead>
+  <tbody>
+    <tr><td data-i="rowOld"></td><td data-i="oldLen"></td><td data-i="oldPos"></td><td class="good" data-i="oldLeft"></td></tr>
+    <tr><td data-i="rowNew"></td><td data-i="newLen"></td><td data-i="newPos"></td><td class="bad" data-i="newLeft"></td></tr>
+  </tbody>
+</table>
+
+<h3 data-i="s2_h_over"></h3>
+<div class="card svgfig"><div id="overflow"></div><p class="cap" data-i="overCap"></p></div>
+<p data-i="s2_over"></p>
+
+<h2 data-i="h3"></h2>
+<p data-i="s3_a"></p>
+<p data-i="s3_b"></p>
+
+<h2 data-i="h4"></h2>
+<p data-i="s4_a"></p>
+<div class="card">
+  <div class="flow">
+    <div class="note" data-i="flowNote"></div>
+    <div class="arrow">&darr;</div>
+    <div class="q" data-i="flowQ"></div>
+    <div class="br">
+      <div class="box yes"><b class="good" data-i="flowYesT"></b><br><span data-i="flowYes"></span></div>
+      <div class="box no"><b class="bad" data-i="flowNoT"></b><br><span data-i="flowNo"></span></div>
+    </div>
+  </div>
+</div>
+<p data-i="s4_b"></p>
+<p data-i="s4_c"></p>
+
+<h2 data-i="h5"></h2>
+<p data-i="s5_a"></p>
+<div class="gifs">
+  <figure><h4 class="bad" data-i="gifOrigT"></h4><img src="d2_bgm_original.gif" alt="" data-alt="gifOrigAlt"><figcaption data-i="gifOrigC"></figcaption></figure>
+  <figure><h4 class="good" data-i="gifFixT"></h4><img src="d2_bgm_fixed.gif" alt="" data-alt="gifFixAlt"><figcaption data-i="gifFixC"></figcaption></figure>
+</div>
+</main>
+
+<script>
+const T={
+ko:{
+title:'미스터 드릴러 "음악이 바뀌는 순간 파란 화면" 버그 이야기',
+intro1:'미스터 드릴러 G와 미스터 드릴러 2에서, 아주 가끔 이런 일이 생깁니다.',
+intro_list:'<li>스테이지를 클리어하거나 구간이 바뀌어 <b>배경음악이 바뀌는 순간</b>, 화면 전체가 <b>파랗게</b> 바뀐다</li><li>게임이 멈추고, 음악은 <b>한 부분만 계속 반복</b>된다</li>',
+intro2:'이 문서는 이 일이 <b>왜</b> 생기는지, 그리고 <b>어떻게 고쳤는지</b>를 그림으로 설명합니다. 두 게임은 배경음악을 다루는 프로그램이 거의 같아서 같은 버그를 가지고 있습니다. 미스터 드릴러 G에서 먼저 발견해 고쳤고(899m 지점에서 파란 화면), 미스터 드릴러 2에서도 같은 버그를 확인해 고쳤습니다.',
+h1:'1. 먼저, 배경음악은 어떻게 나올까?',
+s1_a:'배경음악은 아주 길어서(한 곡에 1MB가 넘음) 메모리에 한꺼번에 올려 두지 않습니다. 게임은 롬에서 음악을 <b>조금씩 퍼 와서</b> 소리 칩에 건넵니다. 1KB짜리 <b>컵 두 개</b>에 번갈아 담아 건네는 방식입니다.',
+romBox:'롬 (음악 한 곡)',romSub:'처음 ··· 끝',cupBox:'컵 두 개',spuBox:'소리 칩',
+note2:'<b>쪽지 "2"</b>다 마셨어요. 다음 1KB를 채워 주세요.',
+note3:'<b>쪽지 "3" (곡 끝)</b>곡의 마지막이에요. 남은 만큼 채우고, 곡 처음으로 되감아 주세요.',
+s1_cap:'소리 칩은 컵 하나를 다 재생할 때마다 쪽지를 붙이고, 게임 본체는 1/60초에 한 번씩 쪽지를 확인해서 컵을 채웁니다.',
+s1_b:'곡의 마지막 부분에 오면 소리 칩은 <b>"곡 끝" 쪽지(3)</b>를 붙입니다. 게임 본체는 이 쪽지를 보고 <b>"남은 양 = 곡 길이 − 지금 위치"</b>를 계산해서 그만큼만 채우고, 나머지는 곡 처음부터 채웁니다. 이렇게 음악이 끊김 없이 반복됩니다.',
+h2:'2. 파란 화면이 생기는 순간',
+s2_a:'쪽지를 붙이는 쪽(소리 칩)과 쪽지를 처리하는 쪽(게임 본체)은 따로 움직입니다. 그래서 쪽지가 붙은 뒤 처리되기 전에 <b>잠깐의 틈</b>이 생길 수 있습니다. 문제는 그 틈에 곡이 바뀌는 경우입니다.',
+tlOkTitle:'보통의 경우 (문제 없음)',tlBadTitle:'버그가 생기는 경우',frame1:'1/60초 (화면 1장)',frame2:'다음 1/60초',
+ok1:'소리 칩이 "곡 끝" 쪽지를 붙인다.',
+ok2:'같은 1/60초 안에 게임 본체가 쪽지를 처리한다. 지난 곡 기준으로 계산하므로 정상 (곡이 처음으로 되감김).',
+ok3:'다음 순간 곡이 바뀐다. 남은 쪽지가 없으니 문제없음.',
+bad1:'게임 본체가 쪽지를 확인한다. 아직 쪽지가 없다.',
+bad2:'그 <b>직후</b> 소리 칩이 "곡 끝" 쪽지를 붙인다. 게임 본체는 이미 확인을 마쳤으므로 쪽지는 다음 1/60초까지 남는다.',
+bad3:'다음 1/60초가 시작되자마자 스테이지 클리어로 <b>곡이 바뀐다</b>. 곡을 바꾸는 쪽은 남아 있는 쪽지를 지우지 않는다.',
+bad4:'게임 본체가 남아 있던 "곡 끝" 쪽지를 <b>새 곡 기준으로</b> 처리한다 → 컵이 넘친다 → 파란 화면.',
+tlCap:'1/60초(약 17ms) 안에서의 순서입니다. 쪽지 "3"이 게임 본체의 확인보다 늦게 붙고, 바로 다음 1/60초에 곡이 바뀔 때만 버그가 생깁니다.',
+s2_h_calc:'새 곡 기준으로 계산하면 무슨 일이?',
+s2_calc:'"남은 양 = 곡 길이 − 지금 위치"를 계산할 때, 게임은 <b>지금 재생 중인 곡</b>을 봅니다. 그런데 곡은 이미 바뀌었고, 새 곡은 방금 시작해서 위치가 맨 앞입니다.',
+thLen:'곡 길이',thPos:'지금 위치',thLeft:'남은 양 (컵에 부을 양)',
+rowOld:'원래 의도 (지난 곡)',oldLen:'약 1,184KB',oldPos:'거의 끝',oldLeft:'528바이트 (컵 1개 안에 들어감)',
+rowNew:'실제 계산 (새 곡)',newLen:'약 1,077KB',newPos:'맨 앞 (1KB)',newLeft:'약 1,076KB (컵의 1,000배 이상!)',
+s2_h_over:'컵이 넘친다',
+overCap:'1KB짜리 컵에 1MB가 넘는 음악 데이터를 붓습니다. 넘친 데이터가 바로 옆에 있던 게임의 중요한 메모를 덮어 버립니다.',
+s2_over:'덮인 메모 중에는 "다음에 실행할 프로그램 위치" 같은 값도 있습니다 (미스터 드릴러 G에서는 "화면을 그릴 때 실행할 프로그램 위치" 표가 덮인 것을 확인했습니다). 거기에 음악 데이터가 적히면, 게임은 음악 데이터를 프로그램 위치로 착각해 엉뚱한 곳으로 뛰어갑니다. 그러면 기계의 기본 프로그램(BIOS)이 오류를 알리는 <b>파란 화면</b>을 띄우고 멈춥니다. 게임 본체가 멈췄으므로 컵을 채워 줄 사람이 없고, 소리 칩은 마지막으로 받은 컵을 계속 재생합니다. 그래서 <b>음악 한 부분이 반복</b>됩니다.',
+h3:'3. 얼마나 자주 생길까?',
+s3_a:'아주 드뭅니다. 곡이 <b>끝까지</b> 재생되어 "곡 끝" 쪽지가 붙어야 하고, 그 쪽지가 게임 본체의 확인 <b>직후</b>에 붙어야 하며, 바로 <b>다음 1/60초</b>에 곡이 바뀌어야 합니다. 쪽지가 붙는 시각은 곡이 한 바퀴 돌 때마다 조금씩 달라져서, 어떤 바퀴에서는 위험한 순서가 되고 어떤 바퀴에서는 안전한 순서가 됩니다.',
+s3_b:'아래 화면은 미스터 드릴러 2 아메리카 스테이지 200m 직전입니다. 한 장면에서 음악이 세 번째로 끝나기를 기다렸다가(약 2분 12초) 정확히 그 1/60초에 드릴로 스테이지를 클리어하면 <b>매번</b> 파란 화면이 나옵니다. 1/60초만 빠르거나 늦어도 아무 일도 생기지 않습니다. 그래서 보통 플레이에서는 거의 볼 수 없고, 오래 하다 보면 우연히 한 번 걸리는 정도입니다.',
+h4:'4. 어떻게 고쳤나?',
+s4_a:'"곡 끝" 쪽지를 처리하기 전에 <b>검사 하나</b>를 넣었습니다.',
+flowNote:'<b>쪽지 "3" (곡 끝)</b>',
+flowQ:'남은 양이 컵 1개(1KB) 이하인가?',
+flowYesT:'예 → 원래대로',flowYes:'남은 만큼 채우고 곡 처음으로 되감기. 정상적인 곡 끝은 항상 이쪽입니다.',
+flowNoT:'아니오 → 버린다',flowNo:'곡이 바뀌기 전에 남은 오래된 쪽지입니다. 아무것도 붓지 않고 넘어갑니다. 새 곡은 다음 쪽지부터 정상적으로 채워집니다.',
+s4_b:'정상적인 곡 끝에서는 남은 양이 언제나 컵 1개 이하이므로, 음악이 반복되는 방식은 원래 게임과 똑같습니다. 달라지는 것은 위험한 순간의 오래된 쪽지를 무시한다는 것 하나뿐입니다.',
+s4_c:'미스터 드릴러 G는 프로그램 안에 쓰이지 않던 빈자리가 있어서 거기에 검사를 넣었습니다. 미스터 드릴러 2는 빈자리가 없어서, 같은 부분에서 같은 계산을 두 번 하던 것을 한 번으로 줄여 자리를 만들고 같은 검사를 넣었습니다. 미스터 드릴러 2는 일본판, 월드판, 미국판 모두 같은 위치에 같은 프로그램이 있어 똑같이 고쳐집니다.',
+h5:'5. 실제 게임 화면 (미스터 드릴러 2)',
+s5_a:'같은 장면, 같은 입력입니다. 음악이 세 번째로 끝나는 순간에 맞춰 드릴로 블록을 파서 스테이지를 클리어했습니다 (초당 8장, 약 3초).',
+gifOrigT:'원래 게임',gifOrigAlt:'원래 게임: 스테이지 클리어 직후 파란 화면으로 멈춤',
+gifOrigC:'"CLEAR"가 나오고 음악이 바뀌는 순간 화면이 파랗게 바뀌고 게임이 멈춥니다.',
+gifFixT:'고친 게임',gifFixAlt:'고친 게임: 스테이지 클리어 후 정상 진행',
+gifFixC:'같은 순간에 클리어해도 새 곡이 정상적으로 재생되고 게임이 계속됩니다.',
+svgCup:'컵 (1KB)',svgPour:'새 곡 약 1,076KB',svgMemo:'게임의 중요한 메모',svgBlue:'파란 화면'
+},
+en:{
+title:'The Mr. Driller "Blue Screen When the Music Changes" Bug',
+intro1:'In Mr. Driller G and Mr. Driller 2, once in a great while this happens:',
+intro_list:'<li>At the <b>moment the background music changes</b> (a stage is cleared or a new section begins), the whole screen turns <b>blue</b></li><li>The game freezes and the music keeps <b>repeating one short part</b></li>',
+intro2:'This page explains <b>why</b> it happens and <b>how it was fixed</b>, with pictures. The two games use almost the same music program, so they share the same bug. It was found and fixed first in Mr. Driller G (a blue screen at 899m), and the same bug was then confirmed and fixed in Mr. Driller 2.',
+h1:'1. First, how is the background music played?',
+s1_a:'Background music is very long (over 1MB per song), so it is not loaded into memory all at once. The game <b>scoops the music out of the ROM a little at a time</b> and hands it to the sound chip, filling <b>two 1KB cups</b> in turn.',
+romBox:'ROM (one song)',romSub:'start ··· end',cupBox:'Two cups',spuBox:'Sound chip',
+note2:'<b>Note "2"</b>I finished a cup. Please fill the next 1KB.',
+note3:'<b>Note "3" (song end)</b>This is the end of the song. Fill what is left, then rewind to the start of the song.',
+s1_cap:'Every time the sound chip finishes a cup it leaves a note, and the main game program checks the notes once every 1/60 s and fills the cups.',
+s1_b:'Near the end of a song the sound chip leaves the <b>"song end" note (3)</b>. The main program reads it, calculates <b>"amount left = song length − current position"</b>, fills only that much, and fills the rest from the start of the song. That is how the music loops without a gap.',
+h2:'2. The moment the blue screen happens',
+s2_a:'The side that leaves notes (the sound chip) and the side that handles them (the main program) run separately. So there can be a <b>short gap</b> after a note is left and before it is handled. The trouble comes when the song changes inside that gap.',
+tlOkTitle:'The usual case (no problem)',tlBadTitle:'The case that triggers the bug',frame1:'1/60 s (one video frame)',frame2:'next 1/60 s',
+ok1:'The sound chip leaves the "song end" note.',
+ok2:'Within the same 1/60 s the main program handles the note. It is calculated for the old song, so all is well (the song rewinds to its start).',
+ok3:'Next, the song changes. No note is left over, so there is no problem.',
+bad1:'The main program checks for notes. There is none yet.',
+bad2:'<b>Right after that</b> the sound chip leaves the "song end" note. The main program has already finished checking, so the note stays until the next 1/60 s.',
+bad3:'As soon as the next 1/60 s begins, the stage is cleared and <b>the song changes</b>. The code that changes songs does not throw away the leftover note.',
+bad4:'The main program handles the leftover "song end" note <b>for the new song</b> → the cup overflows → blue screen.',
+tlCap:'The order of events inside 1/60 s (about 17 ms). The bug only happens when note "3" arrives after the main program’s check and the song changes in the very next 1/60 s.',
+s2_h_calc:'What happens when it is calculated for the new song?',
+s2_calc:'When calculating "amount left = song length − current position", the game looks at <b>the song that is playing now</b>. But the song has already changed, and the new song has just started, so its position is at the very beginning.',
+thLen:'Song length',thPos:'Current position',thLeft:'Amount left (to pour into the cup)',
+rowOld:'What was intended (old song)',oldLen:'about 1,184KB',oldPos:'almost at the end',oldLeft:'528 bytes (fits in one cup)',
+rowNew:'What is actually calculated (new song)',newLen:'about 1,077KB',newPos:'very start (1KB)',newLeft:'about 1,076KB (over 1,000 times the cup!)',
+s2_h_over:'The cup overflows',
+overCap:'More than 1MB of music data is poured into a 1KB cup. The overflow covers up the game’s important notes that sit right next to it.',
+s2_over:'Among the covered notes are values such as "where the program should run next" (in Mr. Driller G, the table "which program to run when drawing the screen" was confirmed to be overwritten). Once music data is written there, the game mistakes the music data for a program location and jumps somewhere meaningless. The machine’s built-in program (BIOS) then shows its error <b>blue screen</b> and stops. With the main program stopped, nobody refills the cups, so the sound chip keeps playing the last cup it got. That is why <b>one part of the music repeats</b>.',
+h3:'3. How often does it happen?',
+s3_a:'Very rarely. The song has to play <b>to its end</b> so that the "song end" note is left, the note has to arrive <b>right after</b> the main program’s check, and the song has to change in the <b>very next 1/60 s</b>. The time at which the note arrives shifts a little every time the song loops, so on some loops the order is dangerous and on others it is safe.',
+s3_b:'The video below is just before 200m in the America stage of Mr. Driller 2. If you wait in one place until the music ends for the third time (about 2 minutes 12 seconds) and clear the stage with the drill in exactly that 1/60 s, you get the blue screen <b>every time</b>. Just 1/60 s earlier or later, nothing happens. So it is almost never seen in normal play; during long sessions it may catch you by chance once.',
+h4:'4. How was it fixed?',
+s4_a:'<b>One check</b> was added before the "song end" note is handled.',
+flowNote:'<b>Note "3" (song end)</b>',
+flowQ:'Is the amount left one cup (1KB) or less?',
+flowYesT:'Yes → as before',flowYes:'Fill what is left and rewind to the start of the song. A normal song end always goes this way.',
+flowNoT:'No → throw it away',flowNo:'This is an old note left over from before the song changed. Nothing is poured. The new song is filled normally from the next note on.',
+s4_b:'At a normal song end the amount left is always one cup or less, so the music loops exactly as in the original game. The only difference is that an old note at the dangerous moment is ignored.',
+s4_c:'Mr. Driller G had an unused empty spot inside its program, and the check was put there. Mr. Driller 2 has no such spot, so a calculation that was done twice in the same place was reduced to once, making room for the same check. The Japanese, World and US versions of Mr. Driller 2 have the same program at the same place, so all of them are fixed the same way.',
+h5:'5. The actual game screen (Mr. Driller 2)',
+s5_a:'Same scene, same input. The stage is cleared by drilling a block exactly when the music ends for the third time (8 frames per second, about 3 seconds).',
+gifOrigT:'Original game',gifOrigAlt:'Original game: freezes on a blue screen right after the stage clear',
+gifOrigC:'When "CLEAR" appears and the music changes, the screen turns blue and the game freezes.',
+gifFixT:'Fixed game',gifFixAlt:'Fixed game: continues normally after the stage clear',
+gifFixC:'Clearing at the same moment, the new song plays normally and the game goes on.',
+svgCup:'Cup (1KB)',svgPour:'New song, ~1,076KB',svgMemo:'Game’s important notes',svgBlue:'Blue screen'
+},
+ja:{
+title:'ミスタードリラー「曲が変わる瞬間に青い画面」バグの話',
+intro1:'ミスタードリラーGとミスタードリラー2で、ごくまれにこんなことが起こります。',
+intro_list:'<li>ステージをクリアしたり区間が変わったりして<b>BGMが切り替わる瞬間</b>、画面全体が<b>青く</b>なる</li><li>ゲームが止まり、音楽は<b>一部分だけをくり返す</b></li>',
+intro2:'このドキュメントでは、これが<b>なぜ</b>起こるのか、そして<b>どう直したのか</b>を図で説明します。2つのゲームはBGMを扱うプログラムがほとんど同じなので、同じバグを持っています。先にミスタードリラーGで見つけて直し（899m地点で青い画面）、ミスタードリラー2でも同じバグを確認して直しました。',
+h1:'1. まず、BGMはどうやって鳴っている？',
+s1_a:'BGMはとても長い（1曲で1MB以上）ので、メモリに一度に読み込んではいません。ゲームはROMから音楽を<b>少しずつくみ出して</b>サウンドチップに渡します。1KBの<b>コップ2つ</b>に交互に入れて渡すしくみです。',
+romBox:'ROM（1曲ぶん）',romSub:'はじめ ··· おわり',cupBox:'コップ2つ',spuBox:'サウンドチップ',
+note2:'<b>メモ「2」</b>飲み終わりました。次の1KBを入れてください。',
+note3:'<b>メモ「3」（曲の終わり）</b>曲の最後です。残りの分だけ入れて、曲のはじめに巻き戻してください。',
+s1_cap:'サウンドチップはコップ1つを再生し終えるたびにメモを貼り、ゲーム本体は1/60秒に1回メモを確認してコップを満たします。',
+s1_b:'曲の最後の部分に来ると、サウンドチップは<b>「曲の終わり」メモ（3）</b>を貼ります。ゲーム本体はこのメモを見て<b>「残り = 曲の長さ − 今の位置」</b>を計算し、その分だけ入れて、足りない分は曲のはじめから入れます。こうして音楽が途切れずにループします。',
+h2:'2. 青い画面が出る瞬間',
+s2_a:'メモを貼る側（サウンドチップ）とメモを処理する側（ゲーム本体）は別々に動いています。そのため、メモが貼られてから処理されるまでに<b>ほんの少しのすき間</b>ができることがあります。問題は、そのすき間に曲が変わる場合です。',
+tlOkTitle:'ふつうの場合（問題なし）',tlBadTitle:'バグが起こる場合',frame1:'1/60秒（画面1枚）',frame2:'次の1/60秒',
+ok1:'サウンドチップが「曲の終わり」メモを貼る。',
+ok2:'同じ1/60秒のうちにゲーム本体がメモを処理する。前の曲を基準に計算するので正常（曲がはじめに巻き戻る）。',
+ok3:'次の瞬間に曲が変わる。残ったメモはないので問題なし。',
+bad1:'ゲーム本体がメモを確認する。まだメモはない。',
+bad2:'その<b>直後</b>にサウンドチップが「曲の終わり」メモを貼る。ゲーム本体はもう確認を終えているので、メモは次の1/60秒まで残る。',
+bad3:'次の1/60秒が始まってすぐ、ステージクリアで<b>曲が変わる</b>。曲を変える側は残っているメモを消さない。',
+bad4:'ゲーム本体が残っていた「曲の終わり」メモを<b>新しい曲を基準に</b>処理する → コップがあふれる → 青い画面。',
+tlCap:'1/60秒（約17ms）の中での順番です。メモ「3」がゲーム本体の確認より後に貼られ、そのすぐ次の1/60秒に曲が変わるときだけバグが起こります。',
+s2_h_calc:'新しい曲を基準に計算すると何が起こる？',
+s2_calc:'「残り = 曲の長さ − 今の位置」を計算するとき、ゲームは<b>今再生している曲</b>を見ます。ところが曲はもう変わっていて、新しい曲は始まったばかりなので位置はいちばん最初です。',
+thLen:'曲の長さ',thPos:'今の位置',thLeft:'残り（コップに注ぐ量）',
+rowOld:'本来の意図（前の曲）',oldLen:'約1,184KB',oldPos:'ほぼ最後',oldLeft:'528バイト（コップ1つに収まる）',
+rowNew:'実際の計算（新しい曲）',newLen:'約1,077KB',newPos:'いちばん最初（1KB）',newLeft:'約1,076KB（コップの1,000倍以上！）',
+s2_h_over:'コップがあふれる',
+overCap:'1KBのコップに1MB以上の音楽データを注ぎます。あふれたデータが、すぐ隣にあったゲームの大事なメモを上書きしてしまいます。',
+s2_over:'上書きされるメモの中には「次に実行するプログラムの場所」のような値もあります（ミスタードリラーGでは「画面を描くときに実行するプログラムの場所」の表が上書きされたことを確認しました）。そこに音楽データが書かれると、ゲームは音楽データをプログラムの場所と勘違いして、とんでもない所へ飛んでしまいます。すると機械の基本プログラム（BIOS）がエラーを知らせる<b>青い画面</b>を出して止まります。ゲーム本体が止まったのでコップを満たす人がいなくなり、サウンドチップは最後に受け取ったコップをずっと再生します。そのため<b>音楽の一部分がくり返されます</b>。',
+h3:'3. どのくらいの頻度で起こる？',
+s3_a:'とてもまれです。曲が<b>最後まで</b>再生されて「曲の終わり」メモが貼られ、そのメモがゲーム本体の確認の<b>直後</b>に貼られ、さらに<b>すぐ次の1/60秒</b>に曲が変わらなければなりません。メモが貼られる時刻は曲が1周するたびに少しずつずれるので、ある周では危険な順番になり、別の周では安全な順番になります。',
+s3_b:'下の画面はミスタードリラー2のアメリカステージ、200mの直前です。同じ場所で音楽が3回目に終わるのを待って（約2分12秒）、ちょうどその1/60秒にドリルでステージをクリアすると<b>毎回</b>青い画面になります。1/60秒早くても遅くても何も起こりません。そのため普通のプレイではほとんど見ることはなく、長く遊んでいるとたまたま1回ひっかかる程度です。',
+h4:'4. どう直した？',
+s4_a:'「曲の終わり」メモを処理する前に<b>チェックを1つ</b>入れました。',
+flowNote:'<b>メモ「3」（曲の終わり）</b>',
+flowQ:'残りはコップ1つ（1KB）以下？',
+flowYesT:'はい → 今までどおり',flowYes:'残りの分を入れて曲のはじめに巻き戻す。正常な曲の終わりはいつもこちらです。',
+flowNoT:'いいえ → 捨てる',flowNo:'曲が変わる前に残っていた古いメモです。何も注がずに進みます。新しい曲は次のメモから正常に満たされます。',
+s4_b:'正常な曲の終わりでは残りはいつもコップ1つ以下なので、音楽のループのしかたは元のゲームとまったく同じです。違うのは、危険な瞬間の古いメモを無視することだけです。',
+s4_c:'ミスタードリラーGはプログラムの中に使われていない空きがあったので、そこにチェックを入れました。ミスタードリラー2には空きがないので、同じ部分で同じ計算を2回していたのを1回に減らして場所を作り、同じチェックを入れました。ミスタードリラー2は日本版・ワールド版・アメリカ版のどれも同じ場所に同じプログラムがあるので、同じように直ります。',
+h5:'5. 実際のゲーム画面（ミスタードリラー2）',
+s5_a:'同じ場面、同じ入力です。音楽が3回目に終わる瞬間に合わせてドリルでブロックを掘り、ステージをクリアしました（毎秒8枚、約3秒）。',
+gifOrigT:'元のゲーム',gifOrigAlt:'元のゲーム: ステージクリア直後に青い画面で止まる',
+gifOrigC:'「CLEAR」が出て曲が変わる瞬間に画面が青くなり、ゲームが止まります。',
+gifFixT:'修正後のゲーム',gifFixAlt:'修正後のゲーム: ステージクリア後も正常に進む',
+gifFixC:'同じ瞬間にクリアしても、新しい曲が正常に鳴り、ゲームが続きます。',
+svgCup:'コップ（1KB）',svgPour:'新しい曲 約1,076KB',svgMemo:'ゲームの大事なメモ',svgBlue:'青い画面'
+}};
+</script>
+<script>
+function overflowSvg(t){
+  const memo=[0,1,2,3,4].map(i=>{const x=330+i*44;return '<rect x="'+x+'" y="150" width="38" height="46" rx="3" fill="var(--memo)" stroke="var(--memoline)"/>'
+    +'<path d="M'+(x+6)+',162 h26 M'+(x+6)+',172 h22 M'+(x+6)+',182 h26" stroke="var(--memoline)" stroke-width="2"/>';}).join('');
+  const drops=[0,1,2,3,4,5,6].map(i=>'<path d="M'+(200+i*44)+','+(132+(i%2)*8)+' q10,-10 22,4" fill="none" stroke="var(--water)" stroke-width="5" stroke-linecap="round"/>').join('');
+  return '<svg viewBox="0 0 560 250" role="img" aria-label="'+t.overCap+'">'
+  +'<rect x="4" y="10" width="192" height="44" rx="8" fill="var(--water)"/>'
+  +'<text x="100" y="38" text-anchor="middle" font-size="14" font-weight="700" fill="#fff">'+t.svgPour+'</text>'
+  +'<path d="M100,56 v34" stroke="var(--water)" stroke-width="16" stroke-linecap="round"/>'
+  +'<path d="M60,96 v96 q0,14 14,14 h52 q14,0 14,-14 v-96" fill="var(--cup)" stroke="var(--fg)" stroke-width="4"/>'
+  +'<rect x="64" y="100" width="72" height="104" rx="10" fill="var(--water)"/>'
+  +'<path d="M60,100 q40,-24 90,10 q30,22 60,24" fill="none" stroke="var(--water)" stroke-width="10" stroke-linecap="round"/>'
+  +drops
+  +'<text x="100" y="234" text-anchor="middle" font-size="14" fill="var(--fg)">'+t.svgCup+'</text>'
+  +memo
+  +'<path d="M330,170 h214" stroke="var(--water)" stroke-width="16" stroke-linecap="round" opacity=".75"/>'
+  +'<text x="436" y="226" text-anchor="middle" font-size="14" fill="var(--fg)">'+t.svgMemo+'</text>'
+  +'<rect x="440" y="20" width="110" height="64" rx="6" fill="#00006b"/>'
+  +'<rect x="474" y="46" width="9" height="9" fill="#888"/><rect x="486" y="46" width="9" height="9" fill="#888"/><rect x="498" y="46" width="9" height="9" fill="#888"/><rect x="510" y="46" width="9" height="9" fill="#888"/>'
+  +'<text x="495" y="104" text-anchor="middle" font-size="14" font-weight="700" fill="var(--bad)">'+t.svgBlue+'</text>'
+  +'<path d="M470,140 L490,112" stroke="var(--bad)" stroke-width="3" marker-end="url(#ah)"/>'
+  +'<defs><marker id="ah" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="var(--bad)"/></marker></defs>'
+  +'</svg>';
+}
+function render(L){
+  const t=T[L];
+  document.documentElement.lang=L;
+  document.title={ko:'미스터 드릴러 BGM 파란 화면',en:'Mr. Driller BGM Blue Screen',ja:'ミスタードリラー BGM青い画面'}[L];
+  document.querySelectorAll('[data-i]').forEach(e=>{e.innerHTML=t[e.dataset.i]||''});
+  document.querySelectorAll('[data-alt]').forEach(e=>{e.alt=t[e.dataset.alt]||''});
+  document.querySelectorAll('#langbar button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.lang===L));
+  document.getElementById('overflow').innerHTML=overflowSvg(t);
+}
+let saved=null;try{saved=localStorage.getItem('lang')}catch(e){}
+const q=new URLSearchParams(location.search).get('lang');
+let lang=[q,saved,(navigator.language||'en').slice(0,2)].find(x=>x&&T[x])||'en';
+document.querySelectorAll('#langbar button').forEach(b=>b.onclick=()=>{lang=b.dataset.lang;try{localStorage.setItem('lang',lang)}catch(e){};render(lang)});
+render(lang);
+</script>
+</body>
+</html>
