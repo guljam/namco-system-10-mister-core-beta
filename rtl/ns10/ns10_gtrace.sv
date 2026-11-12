@@ -19,7 +19,9 @@
 //              3 EXP3 write {addr[19:16], addr[7:0], data[15:0]} (MEM(M) bank 0x1FB4xxxx),
 //              4 vblank: EXP1 reads (16 bit strobes) since the last vblank,
 //              5 vblank: clk2x with the EXP1 wait (ROM board busy) since the last vblank,
-//              6 Drill (Auto) state (ns10_autofire dbg[27:0]) on a change and at each vblank
+//              6 Drill (Auto) state (ns10_autofire dbg[27:0]) on a change and at each vblank,
+//              7 CPU enters (data[0] 1) / leaves (0) PSY-Q VSync() (cpu.vhd dbg_vsync),
+//              8 vblank: clk2x the CPU spent in VSync() since the last vblank (idle time)
 //  Unused slots of the last burst are 0. The probe returns
 //  {state[1:0], lost != 0, 7'd0, beats written[21:0]}.
 //============================================================================
@@ -37,6 +39,7 @@ module ns10_gtrace #(parameter [25:0] TPS = 26'd4233600)   // ticks per second (
 	input      [15:0] e3_data,
 	input             trig,
 	input      [27:0] af,            // ns10_autofire dbg (clk1x)
+	input             cpu_vs,        // CPU inside VSync() (clk1x level)
 	input      [15:0] cfg,
 
 	output reg        t_req = 0,
@@ -105,8 +108,8 @@ function [63:0] ent(input [3:0] t, input [27:0] tm, input [31:0] d);
 endfunction
 
 // ------------------------------------------------------------------ event slots, one drained per clock
-localparam NS = 12;
-localparam S_G = 0, S_DONE = 1, S_BUS = 2, S_DMA = 3, S_FA = 4, S_FB = 5, S_FULL = 6, S_CTL = 7, S_E3 = 8, S_X1 = 9, S_X2 = 10, S_AF = 11;
+localparam NS = 14;
+localparam S_G = 0, S_DONE = 1, S_BUS = 2, S_DMA = 3, S_FA = 4, S_FB = 5, S_FULL = 6, S_CTL = 7, S_E3 = 8, S_X1 = 9, S_X2 = 10, S_AF = 11, S_VS = 12, S_VI = 13;
 reg  [NS-1:0] pend = 0;
 reg    [63:0] slot[NS];
 
@@ -131,6 +134,8 @@ reg         vs_1, full_1;
 reg         e1_rd_1, e3_wr_1;
 reg  [27:0] af_1;
 reg  [27:0] x_rd, x_wait;
+reg   [2:0] vs_s;
+reg  [27:0] vs_idle;
 reg         dma_on;
 reg   [7:0] dma_gap;
 reg  [31:0] dma_burst;
@@ -191,6 +196,7 @@ always @(posedge clk) begin
 	e1_rd_1 <= e1_rd;
 	e3_wr_1 <= e3_wr;
 	af_1    <= af;
+	vs_s    <= {vs_s[1:0], cpu_vs};
 
 	if (rec) begin
 		// ------------------------------------------------------------ GPU
@@ -233,6 +239,10 @@ always @(posedge clk) begin
 		if (e1_rd && !e1_rd_1 && x_rd != 28'hFFFFFFF) x_rd <= x_rd + 1'd1;
 		if (e1_wait && x_wait != 28'hFFFFFFF) x_wait <= x_wait + 1'd1;
 
+		// ------------------------------------------------------------ CPU in VSync() (idle)
+		if (vs_s[2] != vs_s[1]) `ADD(S_VS, ent(4'hF, etm, {4'h7, 27'd0, vs_s[1]}));
+		if (vs_s[1] && vs_idle != 28'hFFFFFFF) vs_idle <= vs_idle + 1'd1;
+
 		// ------------------------------------------------------------ DMA2 bursts (gap >= 256 clk2x ends a burst)
 		if (b_dmaw) begin
 			if (f_dma != 20'hFFFFF) f_dma <= f_dma + 1'd1;
@@ -256,8 +266,9 @@ always @(posedge clk) begin
 			`ADD(S_FB, ent(4'hB, etm, {f_dma, f_gp0, g_idle, g_empty}));
 			`ADD(S_X1, ent(4'hF, etm, {4'h4, x_rd}));
 			`ADD(S_X2, ent(4'hF, etm, {4'h5, x_wait}));
+			`ADD(S_VI, ent(4'hF, etm, {4'h8, vs_idle}));
 			f_hdr <= 0; f_stat <= 0; f_dma <= 0; f_gp0 <= 0;
-			x_rd <= 0; x_wait <= 0;
+			x_rd <= 0; x_wait <= 0; vs_idle <= 0;
 		end
 		if (g_full && !full_1) `ADD(S_FULL, ent(4'hC, etm, 32'd0));
 		if (af != af_1 || (g_vs && !vs_1)) `ADD(S_AF, ent(4'hF, etm, {4'h6, af}));
@@ -272,7 +283,7 @@ always @(posedge clk) begin
 			wptr <= 0;
 			tdiv <= 0; tick <= 0; sub <= 0; sec <= 0;
 			f_hdr <= 0; f_stat <= 0; f_dma <= 0; f_gp0 <= 0;
-			x_rd <= 0; x_wait <= 0;
+			x_rd <= 0; x_wait <= 0; vs_idle <= 0;
 			vram_cmd <= 0; par_left <= 0; dma_on <= 0;
 			pend[S_CTL] <= 1;
 			slot[S_CTL] <= {4'hF, 26'd0, 2'b00, 4'h0, 4'h0, cfg, run + 1'd1};

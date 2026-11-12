@@ -104,6 +104,7 @@ entity psx_top is
       -- [31:0] data, [38:32] register offset, 39 GPU write, 40 GPU read, 41 DMA write, 42 IRQ write, 43 DMA2 word to GPU
       dbg_gpu               : out std_logic_vector(39 downto 0);
       dbg_bus               : out std_logic_vector(43 downto 0);
+      dbg_vsync             : out std_logic;       -- NS10 debug: CPU inside PSY-Q VSync() (cpu.vhd)
       irq10                 : in  std_logic;
       vblank_irq            : out std_logic;   -- NS10: GPU VBLANK interrupt line (irq.vhd input), IRQ10 2x VBlank mode
       -- RAM/BIOS interface  
@@ -1854,6 +1855,7 @@ begin
       SS_DataRead_CPU   => SS_DataRead_CPU,
       SS_DataRead_SCP   => SS_DataRead_SCP,
       SS_idle           => SS_idle_cpu,
+      dbg_vsync         => dbg_vsync,
       
 -- synthesis translate_off
       cpu_done          => cpu_done,  

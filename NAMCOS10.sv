@@ -117,7 +117,7 @@ wire reset_or = RESET | buttons[1] | status[0] | rom_download | cfg_download | n
 // 0         1         2         3          4         5         6          7         8         9
 // 01234567890123456789012345678901 23456789012345678901234567890123 45678901234567890123456789012345
 // 0123456789ABCDEFGHIJKLMNOPQRSTUV 0123456789ABCDEFGHIJKLMNOPQRSTUV
-// X      XX        XXXXXX          XXXX     X                      X                XXXXXXX X
+// X      XX        XXXXXX          XXXX     XXX                    X                XXXXXXX X
 // 17..22: savestates (save, restore, slot, autoincrement, to SD card)
 // 96..104: Test switch, DIP SW1; 105..120: CRT Adjust (on, H-Size, H-Position, V-Position)
 // 81..87, 89: debug build only (NS10_DEBUG, revision NAMCOS10); the release revision NAMCOS10_release
@@ -138,6 +138,7 @@ parameter CONF_STR = {
 	"P1O[33:32],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"P1O[35:34],Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
 	"P1O[41],Deinterlacing,Weave,Bob;",
+	"P1O[43:42],Side Borders,Keep (TV),Keep (centred),Crop (4:3 fill);",  // GitHub issue (563x480, 30 + 512 + 21): centred = same window centred on the picture; Crop = 512x480 shown 4:3 like MAME
 	"P1O[8:7],Stereo Mix,None,25%,50%,100%;",
 	"P2,DIP Switches;",
 	"P2-;",
@@ -645,13 +646,14 @@ wire  [2:0] gt_beat;
 wire [39:0] gt_text;
 wire [39:0] dbg_gpu;
 wire [43:0] dbg_bus;
+wire        dbg_vsync;
 wire        cache_half = DEBUG && (turbo == 2'b10 || (turbo == 2'b11 && status[83]));
 
 `ifdef NS10_DEBUG
 ns10_gtrace ns10_gtrace
 (
 	.clk(clk_2x),
-	.dbg_gpu(dbg_gpu), .dbg_bus(dbg_bus), .trig(status[85]), .af(af_dbg),
+	.dbg_gpu(dbg_gpu), .dbg_bus(dbg_bus), .trig(status[85]), .af(af_dbg), .cpu_vs(dbg_vsync),
 	.e1_rd(exp1_read), .e1_wait(exp1_wait), .e3_wr(exp3_write), .e3_addr(exp3_addr), .e3_data(exp3_dataWrite),
 	.cfg({status[89], 10'd0, cache_half, 1'b0, status[83], turbo}),
 	.t_req(gt_req), .t_addr(gt_addr), .t_din(gt_din), .t_beat(gt_beat), .t_done(gt_done),
@@ -751,6 +753,7 @@ psx
    .dbg_io_data(dbg_io_data),
    .dbg_gpu(dbg_gpu),
    .dbg_bus(dbg_bus),
+   .dbg_vsync(dbg_vsync),
    .irq10(irq10),
    .vblank_irq(vblank_irq),
    // RAM/BIOS interface
@@ -1144,14 +1147,21 @@ assign VGA_SL = 0;
 logic [11:0] aspect_x, aspect_y;
 
 wire [1:0] ar = status[33:32];
+// Side Borders (HDMI scaler window only; the analog picture is the same in all settings):
+//   Keep (TV)      : PSX core's fixed TV-width window below (563 px in 512 mode), picture where the game puts it
+//   Keep (centred) : same width and aspect, window centred on the GPU's drawn area (X1..X2 of GP1(06))
+//   Crop (4:3 fill): DE is the GPU's own drawn window (512 px for the Driller games), and "Original"
+//                    aspect shows it as 4:3, as MAME does (MAME: 2560 GPU clocks = full 4:3 width)
+wire hcrop   = (status[43:42] == 2'd2);
+wire hcentre = (status[43:42] == 2'd1);
 video_freak video_freak
 (
 	.*,
 	.VGA_DE_IN(VGA_DE),
 	.VGA_DE(),
 
-	.ARX((!ar) ? aspect_x : (ar - 1'd1)),
-	.ARY((!ar) ? aspect_y : 12'd0),
+	.ARX((!ar) ? (hcrop ? 12'd4 : aspect_x) : (ar - 1'd1)),
+	.ARY((!ar) ? (hcrop ? 12'd3 : aspect_y) : 12'd0),
 	.CROP_SIZE(0),
 	.CROP_OFF(0),
 	.SCALE(status[35:34])
@@ -1192,9 +1202,20 @@ logic [11:0] hb_start, hb_end;
 assign hb_start_lut = '{12'd63,  12'd50,  12'd36,  12'd31,  12'd24,  12'd0, 12'd0, 12'd0};
 assign hb_end_lut =   '{12'd767, 12'd613, 12'd441, 12'd383, 12'd305, 12'd0, 12'd0, 12'd0};
 
+// Keep (centred): GPU drawn area [gpu_hs, gpu_he) in h_pos units, measured on the last visible line
+logic [11:0] gpu_hs, gpu_he, hb_w;
+logic [12:0] gpu_sum, gpu_ofs;
+logic        old_hbl;
+
 always_comb begin
-	hb_start = hb_start_lut[video_hResMode];
-	hb_end = hb_end_lut[video_hResMode];
+	hb_w    = hb_end_lut[video_hResMode] - hb_start_lut[video_hResMode];
+	gpu_sum = gpu_hs + gpu_he;
+	gpu_ofs = (gpu_sum - hb_w) >> 1;
+	if (hcentre && (gpu_he > gpu_hs) && (gpu_sum >= hb_w))
+		hb_start = gpu_ofs[11:0];
+	else
+		hb_start = hb_start_lut[video_hResMode];
+	hb_end = hb_start + hb_w;
 end
 
 always_ff @(posedge CLK_VIDEO) if (CE_PIXEL) begin
@@ -1210,6 +1231,10 @@ always_ff @(posedge CLK_VIDEO) if (CE_PIXEL) begin
 	{aspect_x, aspect_y} <= aspect_ratio_lut_ntsc[v_total];
 
 	VGA_DISABLE <= 0;
+
+	old_hbl <= hbl;
+	if (~vbl && old_hbl && ~hbl) gpu_hs <= h_pos;
+	if (~vbl && ~old_hbl && hbl) gpu_he <= h_pos;
 
 	h_pos <= h_pos + 1'd1;
 	if (~old_vb && vbl)
@@ -1237,10 +1262,14 @@ always_ff @(posedge CLK_VIDEO) if (CE_PIXEL) begin
 	if (vb_pos > 135)
 		video_aspect.vb <= 0;
 
-	if (h_pos == hb_start)
-		video_aspect.hb <= 0;
-	if (h_pos == hb_end)
-		video_aspect.hb <= 1;
+	if (hcrop)
+		video_aspect.hb <= hbl;
+	else begin
+		if (h_pos == hb_start)
+			video_aspect.hb <= 0;
+		if (h_pos == hb_end)
+			video_aspect.hb <= 1;
+	end
 
 end
 

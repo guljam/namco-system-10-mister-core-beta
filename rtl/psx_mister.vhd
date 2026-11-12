@@ -99,6 +99,7 @@ entity psx_mister is
       -- NS10 debug: GPU trace taps (psx_top.vhd)
       dbg_gpu               : out std_logic_vector(39 downto 0);
       dbg_bus               : out std_logic_vector(43 downto 0);
+      dbg_vsync             : out std_logic;
       irq10                 : in  std_logic;
       vblank_irq            : out std_logic;
       -- RAM/BIOS interface      
@@ -433,6 +434,7 @@ begin
       dbg_cpu_rdata         => dbg_cpu_rdata,
       dbg_gpu               => dbg_gpu,
       dbg_bus               => dbg_bus,
+      dbg_vsync             => dbg_vsync,
       irq10                 => irq10,
       vblank_irq            => vblank_irq,
       -- RAM/BIOS interface        

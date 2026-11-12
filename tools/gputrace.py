@@ -7,6 +7,7 @@
     python tools/gputrace.py fields <in.bin> [out.txt]   # one line per vblank
     python tools/gputrace.py rombus <in.bin> [out.txt]   # one line per vblank: flips, EXP1 reads / wait, SPU stream
     python tools/gputrace.py drill <in.bin> [out.txt]    # Drill (Auto): state changes and IRQ10 acks per vblank
+    python tools/gputrace.py frames <in.bin> [out.txt]   # per field: CPU idle in VSync(), GP1(05) latency, summary
 
 Entry: [63:60] type, [59:34] time (clk2x/16), [33] activeLineLSB, [32] inVsync, [31:0] data.
 """
@@ -108,6 +109,10 @@ def decode(t, d):
             return f"EXP1 wait clk2x {d & 0xFFFFFFF}"
         if sub == 6:
             return "AF " + af_text(d)
+        if sub == 7:
+            return "VSYNC enter" if d & 1 else "VSYNC leave"
+        if sub == 8:
+            return f"VSYNC idle {(d & 0xFFFFFFF) / 67737.6:.3f} ms"
     return f"{d:08X}"
 
 
@@ -132,6 +137,105 @@ def drill(path, out=None):
             f.write(f"{s * 1000:10.3f}   +{(s - vbl) * 1000:6.3f}  AF {af_text(d)}\n")
         elif t == 0xF and (d >> 28) == 3 and ((d >> 24) & 0xF) == 0xA and ((d >> 16) & 0xFF) == 0x18:
             f.write(f"{s * 1000:10.3f}   +{(s - vbl) * 1000:6.3f}  IRQ10 ack\n")
+
+
+def percentile(sorted_list, p):
+    """Nearest-rank percentile (p in 0..100) of a sorted list."""
+    if not sorted_list:
+        return 0.0
+    k = int(p * len(sorted_list) + 99) // 100 - 1
+    return sorted_list[max(0, min(len(sorted_list) - 1, k))]
+
+
+def nearest(items, t, tol=0.002):
+    """Value of the (time, value) entry closest to time t (s) within tol, or None."""
+    best = None
+    for s, v in items:
+        if abs(s - t) <= tol and (best is None or abs(s - t) < best[0]):
+            best = (abs(s - t), v)
+    return best[1] if best else None
+
+
+def frames(path, out=None):
+    """Per field: CPU idle in VSync() (ms), GP1(05) write after the vblank (ms), first VSync() entry
+    (ms before the vblank), EXP1 reads; then a summary."""
+    f = open(out, "w") if out else sys.stdout
+    vbl, gp1, enter, idles, exp1 = [], [], [], [], []
+    for t, s, lsb, vs, d in entries(path):
+        if t == 0xA:
+            vbl.append(s)
+        elif t == 4 and (d >> 24) == 5:
+            gp1.append(s)
+        elif t == 0xF and (d >> 28) == 7:
+            if d & 1:
+                enter.append(s)
+        elif t == 0xF and (d >> 28) == 8:
+            idles.append((s, (d & 0xFFFFFFF) / 67737.6))
+        elif t == 0xF and (d >> 28) == 4:
+            exp1.append((s, d & 0xFFFFFFF))
+
+    f.write("     t(ms)    len   idle  n latencies (ms)                           enter-vbl  e1reads\n")
+    rows = []
+    for j in range(len(vbl) - 1):
+        t0, t1 = vbl[j], vbl[j + 1]
+        g = [x for x in gp1 if t0 <= x < t1]
+        lat = [(x - t0) * 1000 for x in g]
+        ent = [x for x in enter if (g[-1] if g else t0) <= x < t1]
+        before = (t1 - ent[0]) * 1000 if ent else None
+        idle = nearest(idles, t1)
+        e1 = nearest(exp1, t1)
+        rows.append((t0, (t1 - t0) * 1000, idle, lat, before, e1))
+        txt = ",".join("%.2f" % x for x in lat)
+        idl = "     -" if idle is None else "%6.3f" % idle
+        bf = "     -" if before is None else "%6.2f" % before
+        f.write(f"{t0 * 1000:10.2f} {(t1 - t0) * 1000:6.3f} {idl} {len(lat):2d} {txt:40s} {bf} "
+                f"{'-' if e1 is None else e1:>8}\n")
+
+    if not rows:
+        return
+    ln = sorted(r[1] for r in rows)
+    f.write(f"\nfields {len(rows)}: length min {ln[0]:.3f} mean {sum(ln) / len(ln):.3f} max {ln[-1]:.3f} ms\n")
+
+    miss = [r[0] * 1000 for r in rows if not r[3]]
+    multi = [r[0] * 1000 for r in rows if len(r[3]) > 1]
+    f.write(f"no GP1(05) write (missed frame): {len(miss)}" +
+            "".join(" %.2f" % x for x in miss[:20]) + (" ..." if len(miss) > 20 else "") + "\n")
+    f.write(f"more than one GP1(05) write: {len(multi)}" +
+            "".join(" %.2f" % x for x in multi[:20]) + (" ..." if len(multi) > 20 else "") + "\n")
+
+    idl = sorted(r[2] for r in rows if r[2] is not None)
+    if idl:
+        f.write(f"idle (ms): min {idl[0]:.3f} p1 {percentile(idl, 1):.3f} p5 {percentile(idl, 5):.3f} "
+                f"median {percentile(idl, 50):.3f} mean {sum(idl) / len(idl):.3f} max {idl[-1]:.3f}\n")
+        f.write("lowest idle (start ms, idle ms):\n")
+        for r in sorted((r for r in rows if r[2] is not None), key=lambda r: r[2])[:10]:
+            f.write(f"{r[0] * 1000:10.2f} {r[2]:6.3f}\n")
+        f.write("idle histogram (1 ms buckets):\n")
+        for b in range(17):
+            if b < 16:
+                n = sum(1 for x in idl if b <= x < b + 1)
+                name = f"{b:2d}-{b + 1:2d}"
+            else:
+                n = sum(1 for x in idl if x >= 16)
+                name = "  >=16"
+            f.write(f"  {name} {n:5d} {'#' * min(n, 60)}\n")
+
+    lat_all = sorted(x for r in rows for x in r[3])
+    if lat_all:
+        f.write(f"GP1(05) latency after vblank (ms): min {lat_all[0]:.3f} "
+                f"median {percentile(lat_all, 50):.3f} max {lat_all[-1]:.3f}\n")
+
+    if gp1:
+        f.write("gpu_frametime overlay, 1 s windows from the first vblank (average of consecutive\n"
+                "GP1(05) write intervals whose later write lies in the window):\n")
+        t0 = vbl[0]
+        for w in range(int((gp1[-1] - t0) / 1.0) + 1):
+            ws, we = t0 + w, t0 + w + 1.0
+            iv = [(gp1[i + 1] - gp1[i]) * 1000 for i in range(len(gp1) - 1) if ws <= gp1[i + 1] < we]
+            if iv:
+                f.write(f"{ws * 1000:10.2f} {int(sum(iv) / len(iv) * 100) / 100:7.2f} ms  n {len(iv):3d}\n")
+            else:
+                f.write(f"{ws * 1000:10.2f} FFFF      n   0\n")
 
 
 def dump(path, out=None):
@@ -214,3 +318,5 @@ if __name__ == "__main__":
         rombus(a[1], a[2] if len(a) > 2 else None)
     elif a[0] == "drill":
         drill(a[1], a[2] if len(a) > 2 else None)
+    elif a[0] == "frames":
+        frames(a[1], a[2] if len(a) > 2 else None)

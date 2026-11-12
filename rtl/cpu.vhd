@@ -75,6 +75,7 @@ entity cpu is
       SS_DataRead_CPU       : out std_logic_vector(31 downto 0);
       SS_DataRead_SCP       : out std_logic_vector(31 downto 0);
       SS_idle               : out std_logic;
+      dbg_vsync             : out std_logic := '0';  -- NS10 debug: decoded instruction inside PSY-Q libetc VSync()
    
 -- synthesis translate_off
       cpu_done              : out std_logic := '0'; 
@@ -173,6 +174,8 @@ architecture arch of cpu is
   
    signal PCold0                       : unsigned(31 downto 0) := (others => '0');
    signal PCold1                       : unsigned(31 downto 0) := (others => '0');
+   signal vsyncBase                    : unsigned(31 downto 0) := (others => '0');
+   signal vsyncValid                   : std_logic := '0';
    
 -- synthesis translate_off
    signal PCold2                       : unsigned(31 downto 0) := (others => '0');
@@ -2883,6 +2886,22 @@ begin
       end if;
    end process;
    
+   -- NS10 debug: CPU idle time. v_wait's "sll a1,a1,15" (00052BC0, 00052C00 after the TURBO_CACHE patch) occurs once
+   -- in all NS10 games; VSync() + v_wait span [sll - 0x17C, sll + 0x90) in mrdrilrg and mrdrilr2j (same libetc).
+   process (clk1x)
+   begin
+      if (rising_edge(clk1x)) then
+         if (opcode1 = x"00052BC0" or opcode1 = x"00052C00") then
+            vsyncBase  <= pcOld1;
+            vsyncValid <= '1';
+         end if;
+         if (vsyncValid = '1' and pcOld1 >= vsyncBase - 16#17C# and pcOld1 < vsyncBase + 16#90#) then
+            dbg_vsync <= '1';
+         else
+            dbg_vsync <= '0';
+         end if;
+      end if;
+   end process;
    
 
 end architecture;
